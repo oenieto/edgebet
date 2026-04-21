@@ -1,0 +1,79 @@
+{
+  "generated_at": "20260420_1943",
+  "picks": [
+    {
+      "id": "03487c12-aff2-4423-9227-6a98c0654574",
+      "match": "Lecce vs Fiorentina",
+      "homeTeam": "Lecce",
+      "awayTeam": "Fiorentina",
+      "league": "Serie A",
+      "leagueSlug": "serie-a",
+      "kickoff": "2026-04-20T19:45:00+00:00",
+      "prediction": "away",
+      "confidence": 51,
+      "mlProb": {
+        "home": 0.174,
+        "draw": 0.2794,
+        "away": 0.5467
+      },
+      "polyProb": null,
+      "bkProb": {
+        "home": 0.2792,
+        "draw": 0.2792,
+        "away": 0.4416
+      },
+      "blendedProb": {
+        "home": 0.2145,
+        "draw": 0.2793,
+        "away": 0.5062
+      },
+      "aiReasoning": "Pick: Fiorentina gana @ 2.15. Nuestra probabilidad (50.6%) supera a la del mercado (44.2%) en +6.5 pp, dando EV de +8.8%. Forma reciente: Lecce 1.60 pts/g (GF 0.80, GA 0.60) vs Fiorentina 1.80 pts/g (GF 1.80, GA 1.60). Resto de EV: Empate -5.0%, Lecce gana -27.1%.",
+      "suggestedStake": 1.92,
+      "status": "premium",
+      "odds": 2.15,
+      "edgePp": 6.47,
+      "evPct": 8.84,
+      "sourcesAgree": true,
+      "modelSource": "ensemble",
+      "bookmakerSource": "bet365",
+      "polyMeta": null
+    },
+    {
+      "id": "c6818f6c-d861-4834-916d-1df84c12b291",
+      "match": "Crystal Palace vs West Ham",
+      "homeTeam": "Crystal Palace",
+      "awayTeam": "West Ham",
+      "league": "Premier League",
+      "leagueSlug": "premier-league",
+      "kickoff": "2026-04-20T20:00:00+00:00",
+      "prediction": "draw",
+      "confidence": 32,
+      "mlProb": {
+        "home": 0.4437,
+        "draw": 0.333,
+        "away": 0.2234
+      },
+      "polyProb": null,
+      "bkProb": {
+        "home": 0.3982,
+        "draw": 0.2961,
+        "away": 0.3057
+      },
+      "blendedProb": {
+        "home": 0.4262,
+        "draw": 0.3188,
+        "away": 0.255
+      },
+      "aiReasoning": "Sin edge suficiente. Mejor EV disponible: Empate (+2.0%), por debajo del umbral de 5.0%. Forma reciente: Crystal Palace 1.80 pts/g (GF 2.00, GA 1.20) vs West Ham 1.40 pts/g (GF 1.80, GA 1.40). Resto de EV: Crystal Palace gana +1.4%, West Ham gana -20.9%.",
+      "suggestedStake": 0.0,
+      "status": "free",
+      "odds": 3.2,
+      "edgePp": 2.27,
+      "evPct": 2.02,
+      "sourcesAgree": true,
+      "modelSource": "ensemble",
+      "bookmakerSource": "bet365",
+      "polyMeta": null
+    }
+  ]
+}

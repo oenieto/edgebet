@@ -1,0 +1,35 @@
+{
+  "generated_at": "20260420_1943",
+  "count": 2,
+  "by_tier": {
+    "premium": 1,
+    "free": 1
+  },
+  "recommended_count": 1,
+  "avg_ev_pct": 5.43,
+  "polymarket_coverage": 0,
+  "sources_agree_count": 2,
+  "ensemble_used_count": 2,
+  "top_5_by_ev": [
+    {
+      "match": "Lecce vs Fiorentina",
+      "league": "Serie A",
+      "prediction": "away",
+      "confidence": 51,
+      "evPct": 8.84,
+      "edgePp": 6.47,
+      "odds": 2.15,
+      "status": "premium"
+    },
+    {
+      "match": "Crystal Palace vs West Ham",
+      "league": "Premier League",
+      "prediction": "draw",
+      "confidence": 32,
+      "evPct": 2.02,
+      "edgePp": 2.27,
+      "odds": 3.2,
+      "status": "free"
+    }
+  ]
+}

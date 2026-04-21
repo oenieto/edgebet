@@ -1,0 +1,15 @@
+You are working on Edgebet — a premium AI football betting analytics platform.
+Read SPEC.md and CLAUDE.md before every task for full context.
+
+Stack: Next.js 14 + TypeScript + Python FastAPI + PostgreSQL + Claude API
+Brand: Indigo #6366F1, Emerald #10B981, Font: Sora + JetBrains Mono
+Style: Fintech premium (Stripe/Revolut aesthetic) — no soccer clichés
+
+Key rules:
+
+- CSS variables from SPEC.md always — never hardcode colors
+- TimeSeriesSplit for ML — never random split
+- shift(1) on all rolling ML features
+- Pick cards: teams + confidence bar + 3 source pills (ML/Poly/BK) + AI reasoning
+- Monetary values always in JetBrains Mono
+- Sentence case everywhere

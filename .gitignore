@@ -1,0 +1,27 @@
+node_modules/
+.next/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Python
+python/.venv/
+python/venv/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Model artifacts
+python/models/*.pkl
+python/models/*.joblib
+
+# IDE / editors
+.vscode/
+.idea/
+
+# Local snapshots
+login/

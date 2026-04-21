@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./.venv/bin/python -c ' *)",
+      "Bash(./.venv/bin/python reports.py)",
+      "Bash(./.venv/bin/python /tmp/smoke_parlays.py)",
+      "Bash(curl -sS -o /dev/null -w \"%{http_code} %{time_total}s\\\\n\" --max-time 15 https://www.football-data.co.uk/mmz4281/2425/E0.csv)",
+      "Bash(curl -sS -o /dev/null -w \"%{http_code} %{time_total}s\\\\n\" --max-time 30 https://www.football-data.co.uk/mmz4281/2425/E0.csv)",
+      "Bash(./.venv/bin/python /tmp/smoke_parlays_synthetic.py)",
+      "Bash(/Users/oenieto/Documents/Edgebet/python/.venv/bin/python /tmp/smoke_parlays_synthetic.py)",
+      "Bash(./.venv/bin/python -c \"from api.main import app; print\\('routes:', [r.path for r in app.routes if 'parlay' in r.path.lower\\(\\) or 'pick' in r.path.lower\\(\\)]\\)\")",
+      "Bash(/Users/oenieto/Documents/Edgebet/python/.venv/bin/python -c ' *)",
+      "Bash(lsof -ti:3000)",
+      "Bash(bun run *)",
+      "Bash(curl -sf http://localhost:8000/health)",
+      "Bash(curl -sf http://localhost:3000)",
+      "Bash(curl -sI http://localhost:3000)",
+      "Bash(time curl *)",
+      "Bash(curl -sS -o /dev/null -w \"%{http_code} %{time_total}s\\\\n\" --max-time 8 https://www.football-data.co.uk/mmz4281/2425/E0.csv)",
+      "Bash(curl -sS -4 -o /tmp/test_e0.csv -w \"%{http_code} %{time_total}s %{size_download}B\\\\n\" --max-time 15 https://www.football-data.co.uk/mmz4281/2425/E0.csv)",
+      "Bash(curl -sS -o /dev/null -w \"%{http_code} %{time_total}s\\\\n\" --max-time 5 https://api.github.com)",
+      "Bash(curl -sS -o /dev/null -w \"%{http_code} %{time_total}s\\\\n\" --max-time 5 https://www.google.com)",
+      "Bash(curl -sS -o /tmp/test_of.json -w \"%{http_code} %{time_total}s %{size_download}B\\\\n\" --max-time 8 https://raw.githubusercontent.com/openfootball/football.json/master/2024-25/en.1.json)",
+      "Bash(xargs kill *)",
+      "Bash(./.venv/bin/uvicorn api.main:app --host 0.0.0.0 --port 8000)",
+      "Bash(curl -sS -o /tmp/cl.json -w \"%{http_code} %{size_download}B\\\\n\" --max-time 6 https://raw.githubusercontent.com/openfootball/football.json/master/2024-25/en.1.json)",
+      "Bash(curl -sS -o /tmp/ucl.json -w \"ucl %{http_code} %{size_download}B\\\\n\" --max-time 6 \"https://raw.githubusercontent.com/openfootball/football.json/master/2024-25/uefa.cl.json\")",
+      "Bash(curl -sS -o /tmp/ucl2.json -w \"ucl2 %{http_code} %{size_download}B\\\\n\" --max-time 6 \"https://api.football-data.org/v4/competitions/CL/matches?status=SCHEDULED\")",
+      "Bash(curl -sS -o /tmp/ucl2526.json -w \"ucl 25/26 %{http_code} %{size_download}B\\\\n\" --max-time 6 \"https://raw.githubusercontent.com/openfootball/football.json/master/2025-26/uefa.cl.json\")",
+      "Bash(curl -sS -o /tmp/epl2526.json -w \"epl 25/26 %{http_code} %{size_download}B\\\\n\" --max-time 6 \"https://raw.githubusercontent.com/openfootball/football.json/master/2025-26/en.1.json\")",
+      "Bash(curl -sS -o /tmp/laliga2526.json -w \"laliga 25/26 %{http_code} %{size_download}B\\\\n\" --max-time 6 \"https://raw.githubusercontent.com/openfootball/football.json/master/2025-26/es.1.json\")",
+      "Bash(curl -sS -o /tmp/bundes2526.json -w \"bundes 25/26 %{http_code} %{size_download}B\\\\n\" --max-time 6 \"https://raw.githubusercontent.com/openfootball/football.json/master/2025-26/de.1.json\")",
+      "Bash(curl -sS -o /tmp/seriea2526.json -w \"serie 25/26 %{http_code} %{size_download}B\\\\n\" --max-time 6 \"https://raw.githubusercontent.com/openfootball/football.json/master/2025-26/it.1.json\")",
+      "Bash(echo \"started pid $!\")",
+      "Bash(curl -s -f http://localhost:8000/health)",
+      "Bash(python3 -c ' *)",
+      "Bash(git -C /Users/oenieto/Documents/Edgebet status)"
+    ],
+    "additionalDirectories": [
+      "/Users/oenieto/Documents/Edgebet/python/python/models"
+    ]
+  }
+}
