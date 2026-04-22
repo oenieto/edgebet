@@ -5,7 +5,7 @@ bcrypt para passwords + JWT para sesiones.
 from __future__ import annotations
 
 import os
-import sqlite3
+import psycopg2
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
@@ -79,7 +79,7 @@ def _create_token(user_id: int, email: str) -> str:
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def _row_to_user(row: sqlite3.Row) -> UserPublic:
+def _row_to_user(row) -> UserPublic:
     return UserPublic(
         id=row["id"],
         email=row["email"],
@@ -103,8 +103,9 @@ def get_current_user(
     except (jwt.InvalidTokenError, KeyError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    with connect() as conn:
-        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    with connect() as cur:
+        cur.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+        row = cur.fetchone()
     if row is None:
         raise HTTPException(status_code=401, detail="User no longer exists")
     return _row_to_user(row)
@@ -120,14 +121,15 @@ def register(body: RegisterRequest) -> AuthResponse:
 
     email_norm = body.email.lower()
     try:
-        with connect() as conn:
-            cur = conn.execute(
-                "INSERT INTO users (email, password_hash, name) VALUES (?, ?, ?)",
+        with connect() as cur:
+            cur.execute(
+                "INSERT INTO users (email, password_hash, name) VALUES (%s, %s, %s) RETURNING id",
                 (email_norm, _hash_password(body.password), body.name.strip()),
             )
-            user_id = cur.lastrowid
-            row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    except sqlite3.IntegrityError:
+            user_id = cur.fetchone()["id"]
+            cur.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+            row = cur.fetchone()
+    except psycopg2.IntegrityError:
         raise HTTPException(status_code=409, detail="Email already registered")
 
     user = _row_to_user(row)
@@ -137,8 +139,9 @@ def register(body: RegisterRequest) -> AuthResponse:
 @router.post("/login", response_model=AuthResponse)
 def login(body: LoginRequest) -> AuthResponse:
     email_norm = body.email.lower()
-    with connect() as conn:
-        row = conn.execute("SELECT * FROM users WHERE email = ?", (email_norm,)).fetchone()
+    with connect() as cur:
+        cur.execute("SELECT * FROM users WHERE email = %s", (email_norm,))
+        row = cur.fetchone()
 
     if row is None or not _verify_password(body.password, row["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")

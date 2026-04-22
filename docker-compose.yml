@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: edgebet
+      POSTGRES_PASSWORD: edgebet
+      POSTGRES_DB: edgebet
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./python:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://edgebet:edgebet@db:5432/edgebet
+      - STRIPE_SECRET_KEY=mock-key
+      - STRIPE_WEBHOOK_SECRET=mock-secret
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    depends_on:
+      - db
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./app:/usr/src/app/app
+      - ./components:/usr/src/app/components
+      - ./lib:/usr/src/app/lib
+    environment:
+      - NEXT_PUBLIC_API_URL=http://backend:8000
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:

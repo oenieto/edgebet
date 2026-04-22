@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import sqlite3
+import psycopg2
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Body
@@ -45,8 +45,9 @@ class AlertUpdate(BaseModel):
 def get_profile(user_id: int, user: Annotated[UserPublic, Depends(get_current_user)]):
     if user.id != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
-    with connect() as conn:
-        row = conn.execute("SELECT * FROM user_profiles WHERE user_id = ?", (user_id,)).fetchone()
+    with connect() as cur:
+        cur.execute("SELECT * FROM user_profiles WHERE user_id = %s", (user_id,))
+        row = cur.fetchone()
     
     if not row:
         return {
@@ -93,23 +94,24 @@ def update_profile(user_id: int, body: UserProfileUpdate, user: Annotated[UserPu
     
     leagues_json = json.dumps(body.favorite_leagues)
     
-    with connect() as conn:
-        row = conn.execute("SELECT id FROM user_profiles WHERE user_id = ?", (user_id,)).fetchone()
+    with connect() as cur:
+        cur.execute("SELECT id FROM user_profiles WHERE user_id = %s", (user_id,))
+        row = cur.fetchone()
         if row:
-            conn.execute(
+            cur.execute(
                 """UPDATE user_profiles SET 
-                risk_profile=?, bankroll=?, horizon=?, stake_pct=?, 
-                weekly_limit=?, daily_limit=?, favorite_leagues=?, updated_at=datetime('now')
-                WHERE user_id=?""",
+                risk_profile=%s, bankroll=%s, horizon=%s, stake_pct=%s, 
+                weekly_limit=%s, daily_limit=%s, favorite_leagues=%s, updated_at=CURRENT_TIMESTAMP
+                WHERE user_id=%s""",
                 (body.risk_profile, body.bankroll, body.horizon, stake_pct, weekly_limit, daily_limit, leagues_json, user_id)
             )
         else:
-            conn.execute(
+            cur.execute(
                 """INSERT INTO user_profiles (user_id, risk_profile, bankroll, horizon, stake_pct, weekly_limit, daily_limit, favorite_leagues)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
                 (user_id, body.risk_profile, body.bankroll, body.horizon, stake_pct, weekly_limit, daily_limit, leagues_json)
             )
-        conn.execute("UPDATE users SET onboarding_done = 1 WHERE id = ?", (user_id,))
+        cur.execute("UPDATE users SET onboarding_done = true WHERE id = %s", (user_id,))
     
     return {"status": "success"}
 
@@ -119,11 +121,13 @@ def get_bankroll(user_id: int, user: Annotated[UserPublic, Depends(get_current_u
     if user.id != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
         
-    with connect() as conn:
-        profile = conn.execute("SELECT bankroll FROM user_profiles WHERE user_id = ?", (user_id,)).fetchone()
+    with connect() as cur:
+        cur.execute("SELECT bankroll FROM user_profiles WHERE user_id = %s", (user_id,))
+        profile = cur.fetchone()
         current_amount = profile["bankroll"] if profile else 0.0
         
-        rows = conn.execute("SELECT * FROM bankroll_snapshots WHERE user_id = ? ORDER BY date ASC LIMIT 30", (user_id,)).fetchall()
+        cur.execute("SELECT * FROM bankroll_snapshots WHERE user_id = %s ORDER BY date ASC LIMIT 30", (user_id,))
+        rows = cur.fetchall()
         
     sparkline = [{"date": r["date"], "amount": r["amount"]} for r in rows]
     initial = sparkline[0]["amount"] if sparkline else current_amount
@@ -147,10 +151,10 @@ def save_bankroll_snapshot(user_id: int, body: BankrollSnapshot, user: Annotated
     from datetime import datetime
     today = datetime.now().strftime("%Y-%m-%d")
     
-    with connect() as conn:
-        conn.execute(
+    with connect() as cur:
+        cur.execute(
             """INSERT INTO bankroll_snapshots (user_id, date, amount, pnl_day, picks_count)
-            VALUES (?, ?, ?, ?, ?)""",
+            VALUES (%s, %s, %s, %s, %s)""",
             (user_id, today, body.amount, body.pnl_day, body.picks_count)
         )
     return {"status": "success"}
@@ -161,8 +165,9 @@ def get_bets(user_id: int, user: Annotated[UserPublic, Depends(get_current_user)
     if user.id != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
         
-    with connect() as conn:
-        rows = conn.execute("SELECT * FROM user_bets WHERE user_id = ? ORDER BY bet_date DESC", (user_id,)).fetchall()
+    with connect() as cur:
+        cur.execute("SELECT * FROM user_bets WHERE user_id = %s ORDER BY bet_date DESC", (user_id,))
+        rows = cur.fetchall()
         
     bets = []
     wins = 0
@@ -185,9 +190,6 @@ def get_bets(user_id: int, user: Annotated[UserPublic, Depends(get_current_user)
     total = wins + losses
     accuracy = (wins / total * 100) if total > 0 else 0.0
     
-    # Calculate ROI (total_pnl / total_staked)
-    # This is a simplification
-    
     return {
         "bets": bets,
         "total_bets": len(bets),
@@ -196,7 +198,7 @@ def get_bets(user_id: int, user: Annotated[UserPublic, Depends(get_current_user)
         "pending": pending,
         "accuracy": accuracy,
         "total_pnl": total_pnl,
-        "roi_pct": 0.0 # Placeholder
+        "roi_pct": 0.0
     }
 
 
@@ -205,10 +207,10 @@ def create_bet(user_id: int, body: BetRequest, user: Annotated[UserPublic, Depen
     if user.id != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
         
-    with connect() as conn:
-        conn.execute(
+    with connect() as cur:
+        cur.execute(
             """INSERT INTO user_bets (user_id, pick_id, match, prediction, stake, odds, result, bet_date)
-            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)""",
+            VALUES (%s, %s, %s, %s, %s, %s, 'pending', %s)""",
             (user_id, body.pick_id, body.match, body.prediction, body.stake, body.odds, body.bet_date)
         )
     return {"status": "success"}
@@ -219,13 +221,13 @@ def get_alerts(user_id: int, user: Annotated[UserPublic, Depends(get_current_use
     if user.id != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
         
-    with connect() as conn:
-        rows = conn.execute("SELECT * FROM user_alerts WHERE user_id = ?", (user_id,)).fetchall()
-        profile = conn.execute("SELECT weekly_limit FROM user_profiles WHERE user_id = ?", (user_id,)).fetchone()
+    with connect() as cur:
+        cur.execute("SELECT * FROM user_alerts WHERE user_id = %s", (user_id,))
+        rows = cur.fetchall()
+        cur.execute("SELECT weekly_limit FROM user_profiles WHERE user_id = %s", (user_id,))
+        profile = cur.fetchone()
         
     weekly_limit = profile["weekly_limit"] if profile else 0.0
-    
-    # Calculate weekly used (simplification)
     weekly_used = 0.0
     
     return {
@@ -241,16 +243,17 @@ def update_alert(user_id: int, body: AlertUpdate, user: Annotated[UserPublic, De
     if user.id != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
         
-    with connect() as conn:
-        row = conn.execute("SELECT id FROM user_alerts WHERE user_id = ? AND alert_type = ?", (user_id, body.alert_type)).fetchone()
+    with connect() as cur:
+        cur.execute("SELECT id FROM user_alerts WHERE user_id = %s AND alert_type = %s", (user_id, body.alert_type))
+        row = cur.fetchone()
         if row:
-            conn.execute(
-                "UPDATE user_alerts SET enabled = ?, threshold_pct = ? WHERE id = ?",
+            cur.execute(
+                "UPDATE user_alerts SET enabled = %s, threshold_pct = %s WHERE id = %s",
                 (body.enabled, body.threshold_pct, row["id"])
             )
         else:
-            conn.execute(
-                "INSERT INTO user_alerts (user_id, alert_type, enabled, threshold_pct) VALUES (?, ?, ?, ?)",
+            cur.execute(
+                "INSERT INTO user_alerts (user_id, alert_type, enabled, threshold_pct) VALUES (%s, %s, %s, %s)",
                 (user_id, body.alert_type, body.enabled, body.threshold_pct)
             )
     return {"status": "success"}
@@ -261,9 +264,9 @@ def get_onboarding_status(user_id: int, user: Annotated[UserPublic, Depends(get_
     if user.id != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
         
-    with connect() as conn:
-        row = conn.execute("SELECT onboarding_done FROM users WHERE id = ?", (user_id,)).fetchone()
+    with connect() as cur:
+        cur.execute("SELECT onboarding_done FROM users WHERE id = %s", (user_id,))
+        row = cur.fetchone()
         
     done = bool(row["onboarding_done"]) if row else False
     return {"onboarding_done": done, "missing_steps": [] if done else ["profile", "bankroll", "leagues"]}
-

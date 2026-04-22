@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from api.auth import UserPublic, get_current_user, router as auth_router
 from api.user import router as user_router
+from api.stripe_webhooks import router as stripe_router
 from api.db import init_db
 from api.picks_service import get_leagues, get_todays_picks
 from api.parlay_builder import build_all_tiers
@@ -47,6 +48,7 @@ def _startup() -> None:
 
 app.include_router(auth_router)
 app.include_router(user_router)
+app.include_router(stripe_router)
 
 
 class ProbabilityTriplet(BaseModel):
@@ -82,70 +84,6 @@ class HealthResponse(BaseModel):
     timestamp: str
 
 
-def _mock_picks() -> list[Pick]:
-    """Temporary fixtures until the ML pipeline is wired end-to-end."""
-    return [
-        Pick(
-            id=str(uuid4()),
-            match="Arsenal vs Chelsea",
-            homeTeam="Arsenal",
-            awayTeam="Chelsea",
-            league="Premier League",
-            kickoff="2026-04-19T15:00:00Z",
-            prediction="home",
-            confidence=74,
-            mlProb=ProbabilityTriplet(home=0.58, draw=0.23, away=0.19),
-            polyProb=ProbabilityTriplet(home=0.54, draw=0.25, away=0.21),
-            bkProb=ProbabilityTriplet(home=0.50, draw=0.27, away=0.23),
-            aiReasoning=(
-                "Divergencia del 8% detectada frente a Pinnacle closing lines. "
-                "El modelo xG proyecta 3.12 goles esperados basados en ausencias defensivas."
-            ),
-            suggestedStake=2.5,
-            status="free",
-            odds=1.85,
-        ),
-        Pick(
-            id=str(uuid4()),
-            match="Real Madrid vs Getafe",
-            homeTeam="Real Madrid",
-            awayTeam="Getafe",
-            league="La Liga",
-            kickoff="2026-04-19T19:00:00Z",
-            prediction="home",
-            confidence=68,
-            mlProb=ProbabilityTriplet(home=0.71, draw=0.17, away=0.12),
-            polyProb=ProbabilityTriplet(home=0.68, draw=0.20, away=0.12),
-            bkProb=ProbabilityTriplet(home=0.72, draw=0.18, away=0.10),
-            aiReasoning=(
-                "Tres fuentes coinciden en el favorito. Handicap asiático -1.5 "
-                "captura la ventaja de forma sin exponerse a cuotas mínimas."
-            ),
-            suggestedStake=2.0,
-            status="free",
-            odds=2.10,
-        ),
-        Pick(
-            id=str(uuid4()),
-            match="Bayern vs Dortmund",
-            homeTeam="Bayern",
-            awayTeam="Dortmund",
-            league="Bundesliga",
-            kickoff="2026-04-20T14:30:00Z",
-            prediction="home",
-            confidence=82,
-            mlProb=ProbabilityTriplet(home=0.66, draw=0.20, away=0.14),
-            polyProb=ProbabilityTriplet(home=0.58, draw=0.22, away=0.20),
-            bkProb=ProbabilityTriplet(home=0.52, draw=0.24, away=0.24),
-            aiReasoning=(
-                "Edge del 9.2%: el modelo ML identifica un favoritismo local subestimado "
-                "por Polymarket y Bet365. Mercado 'Bayern win to nil' con valor."
-            ),
-            suggestedStake=3.0,
-            status="premium",
-            odds=3.40,
-        ),
-    ]
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -166,8 +104,7 @@ def picks_today(league: str | None = None) -> list[Pick]:
     real = get_todays_picks(league_slug=league)
     if real:
         return [Pick(**p) for p in real]
-    # Fallback a mocks si la descarga de datos falla
-    return _mock_picks()
+    return []
 
 
 @app.get("/picks/exclusive", response_model=Pick)
@@ -178,7 +115,7 @@ def pick_exclusive() -> Pick:
     """
     real = get_todays_picks(league_slug=None)
     if not real:
-        real = [p.model_dump() for p in _mock_picks()]
+        raise HTTPException(status_code=404, detail="No picks available")
     # get_todays_picks ya ordena por EV desc → primero es el mejor
     return Pick(**real[0])
 
