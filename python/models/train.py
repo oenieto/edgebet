@@ -24,7 +24,7 @@ PREDICTOR_FEATURE_COLUMNS = [
 ]
 
 
-def prepare_model_data(df: pd.DataFrame, use_predictor_cols: bool = True) -> tuple:
+def prepare_model_data(df: pd.DataFrame, use_predictor_cols: bool = True, target_col: str = "Result") -> tuple:
     """
     Si use_predictor_cols=True: usa el subset exacto que consume el predictor en runtime.
     Así el modelo entrenado y el inferido viven sobre el mismo espacio de features.
@@ -46,7 +46,7 @@ def prepare_model_data(df: pd.DataFrame, use_predictor_cols: bool = True) -> tup
             "blended_prob_", "triple_blend_",
         ))]
     X = df[feature_cols].copy().fillna(df[feature_cols].median())
-    y = df["Result"].copy()
+    y = df[target_col].copy()
     print(f"Features: {X.shape[1]} | Matches: {X.shape[0]}")
     print(f"Class balance: {y.value_counts().to_dict()}")
     return X, y, feature_cols
@@ -87,7 +87,7 @@ def train_with_cv(X: pd.DataFrame, y: pd.Series) -> dict:
     return results
 
 
-def build_and_save_ensemble(X: pd.DataFrame, y: pd.Series, save_dir: str | None = None) -> tuple:
+def build_and_save_ensemble(X: pd.DataFrame, y: pd.Series, save_dir: str | None = None, prefix: str = "ensemble", target_names: list[str] | None = None) -> tuple:
     if save_dir is None:
         save_dir = str(Path(__file__).resolve().parent)
     """Build ensemble, evaluate on holdout, save to disk."""
@@ -114,19 +114,22 @@ def build_and_save_ensemble(X: pd.DataFrame, y: pd.Series, save_dir: str | None 
     proba = ensemble.predict_proba(X_test_s)
     acc = accuracy_score(y_test, preds)
     ll = log_loss(y_test, proba)
-    print(f"\nEnsemble — Accuracy: {acc:.4f} | Log Loss: {ll:.4f}")
-    print(classification_report(y_test, preds, target_names=["Away","Draw","Home"]))
+    print(f"\n{prefix.capitalize()} — Accuracy: {acc:.4f} | Log Loss: {ll:.4f}")
+    
+    if target_names is None:
+        target_names = ["Away","Draw","Home"] if len(np.unique(y)) == 3 else ["Under", "Over"]
+    print(classification_report(y_test, preds, target_names=target_names))
 
     Path(save_dir).mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M")
-    with open(f"{save_dir}/ensemble_{ts}.pkl", "wb") as f:
+    with open(f"{save_dir}/{prefix}_{ts}.pkl", "wb") as f:
         pickle.dump(ensemble, f)
-    with open(f"{save_dir}/scaler_{ts}.pkl", "wb") as f:
+    with open(f"{save_dir}/scaler_{prefix}_{ts}.pkl", "wb") as f:
         pickle.dump(scaler, f)
     # Persistimos el orden exacto de columnas para que el predictor lo replique
-    with open(f"{save_dir}/feature_columns.txt", "w") as f:
+    with open(f"{save_dir}/feature_columns_{prefix}.txt", "w") as f:
         f.write("\n".join(list(X.columns)))
-    print(f"Saved: ensemble_{ts}.pkl + scaler_{ts}.pkl + feature_columns.txt")
+    print(f"Saved: {prefix}_{ts}.pkl + scaler_{prefix}_{ts}.pkl + feature_columns_{prefix}.txt")
     return ensemble, scaler
 
 

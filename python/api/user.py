@@ -48,6 +48,13 @@ def get_profile(user_id: int, user: Annotated[UserPublic, Depends(get_current_us
     with connect() as cur:
         cur.execute("SELECT * FROM user_profiles WHERE user_id = %s", (user_id,))
         row = cur.fetchone()
+        
+        cur.execute("SELECT COUNT(*) as bets, SUM(CASE WHEN result='win' THEN 1 ELSE 0 END) as wins FROM user_bets WHERE user_id = %s", (user_id,))
+        bets_stats = cur.fetchone()
+        
+    bets_cnt = bets_stats["bets"] if bets_stats else 0
+    wins_cnt = bets_stats["wins"] if bets_stats and bets_stats["wins"] else 0
+    xp = int((wins_cnt * 50) + (bets_cnt * 10))
     
     if not row:
         return {
@@ -57,7 +64,8 @@ def get_profile(user_id: int, user: Annotated[UserPublic, Depends(get_current_us
             "stake_pct": 5.0,
             "weekly_limit": 0.0,
             "daily_limit": 0.0,
-            "favorite_leagues": []
+            "favorite_leagues": [],
+            "xp": xp
         }
     
     leagues = []
@@ -75,6 +83,7 @@ def get_profile(user_id: int, user: Annotated[UserPublic, Depends(get_current_us
         "weekly_limit": row["weekly_limit"],
         "daily_limit": row["daily_limit"],
         "favorite_leagues": leagues,
+        "xp": xp,
     }
 
 
@@ -161,44 +170,62 @@ def save_bankroll_snapshot(user_id: int, body: BankrollSnapshot, user: Annotated
 
 
 @router.get("/{user_id}/bets")
-def get_bets(user_id: int, user: Annotated[UserPublic, Depends(get_current_user)]):
+def get_bets(user_id: int, user: Annotated[UserPublic, Depends(get_current_user)], limit: int = 50, offset: int = 0):
     if user.id != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
         
     with connect() as cur:
-        cur.execute("SELECT * FROM user_bets WHERE user_id = %s ORDER BY bet_date DESC", (user_id,))
+        cur.execute("""
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN result = 'win' THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN result = 'loss' THEN 1 ELSE 0 END) as losses,
+                SUM(CASE WHEN result = 'pending' THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN result = 'win' THEN pnl WHEN result = 'loss' THEN -stake ELSE 0 END) as total_pnl
+            FROM user_bets 
+            WHERE user_id = %s
+        """, (user_id,))
+        stats = cur.fetchone()
+        
+        cur.execute("SELECT * FROM user_bets WHERE user_id = %s ORDER BY bet_date DESC LIMIT %s OFFSET %s", (user_id, limit, offset))
         rows = cur.fetchall()
         
-    bets = []
-    wins = 0
-    losses = 0
-    pending = 0
-    total_pnl = 0.0
+    bets = [dict(r) for r in rows]
     
-    for r in rows:
-        b = dict(r)
-        bets.append(b)
-        if b["result"] == "win":
-            wins += 1
-            total_pnl += (b["pnl"] or 0)
-        elif b["result"] == "loss":
-            losses += 1
-            total_pnl -= b["stake"]
-        elif b["result"] == "pending":
-            pending += 1
-            
-    total = wins + losses
-    accuracy = (wins / total * 100) if total > 0 else 0.0
+    if not stats or not stats["total"]:
+        return {
+            "bets": bets,
+            "total_bets": 0,
+            "wins": 0,
+            "losses": 0,
+            "pending": 0,
+            "accuracy": 0.0,
+            "total_pnl": 0.0,
+            "roi_pct": 0.0,
+            "limit": limit,
+            "offset": offset
+        }
+    
+    wins = int(stats["wins"] or 0)
+    losses = int(stats["losses"] or 0)
+    pending = int(stats["pending"] or 0)
+    total_pnl = float(stats["total_pnl"] or 0.0)
+    total_resolved = wins + losses
+    total_all = int(stats["total"] or 0)
+    
+    accuracy = (wins / total_resolved * 100) if total_resolved > 0 else 0.0
     
     return {
         "bets": bets,
-        "total_bets": len(bets),
+        "total_bets": total_all,
         "wins": wins,
         "losses": losses,
         "pending": pending,
         "accuracy": accuracy,
         "total_pnl": total_pnl,
-        "roi_pct": 0.0
+        "roi_pct": 0.0,
+        "limit": limit,
+        "offset": offset
     }
 
 

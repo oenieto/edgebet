@@ -1,10 +1,12 @@
 'use client';
 
-import React, { Fragment, useEffect, useMemo, useState } from 'react';
+import React, { Fragment, useMemo, useState } from 'react';
+import useSWR from 'swr';
 import Link from 'next/link';
 import {
   AlertCircle,
   ArrowRight,
+  CalendarDays,
   Crown,
   Flame,
   Globe2,
@@ -20,6 +22,7 @@ import {
 import LeagueRail from '@/components/shell/LeagueRail';
 import BankrollTracker from '@/components/bankroll/BankrollTracker';
 import SmartAlerts from '@/components/bankroll/SmartAlerts';
+import RankCard from '@/components/profile/RankCard';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUserStore } from '@/lib/store/userStore';
 import { getLeagues, getMetrics, getPicksToday } from '@/lib/api/picks';
@@ -27,43 +30,40 @@ import type { LeagueInfo, Metrics, Pick } from '@/types';
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const { profile } = useUserStore();
+  const xp = profile?.xp ?? 0;
   const userTier = (user?.tier ?? 'free') as 'free' | 'pro' | 'vip';
 
-  const [picks, setPicks] = useState<Pick[] | null>(null);
-  const [leagues, setLeagues] = useState<LeagueInfo[]>([]);
-  const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [selectedLeague, setSelectedLeague] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [pickFilter, setPickFilter] = useState<'all' | 'high_ev' | 'divergence' | 'vip' | 'premium'>('all');
+  const [selectedWeek, setSelectedWeek] = useState<'this_week' | 'next_week'>('this_week');
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-
-    Promise.all([getPicksToday(), getMetrics(), getLeagues()])
-      .then(([picksResult, metricsResult, leaguesResult]) => {
-        if (cancelled) return;
-        setPicks(picksResult);
-        setMetrics(metricsResult);
-        setLeagues(leaguesResult);
-        setError(null);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        console.error('API fetch failed', err);
-        setError(
-          'No se pudo conectar al backend. Arranca FastAPI con `uvicorn api.main:app --reload` desde /python.',
-        );
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
+  const { thisWeekEnd, nextWeekStart, nextWeekEnd } = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dayOfWeek = today.getDay();
+    const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek;
+    const endThis = new Date(today);
+    endThis.setDate(today.getDate() + daysUntilSunday);
+    endThis.setHours(23, 59, 59, 999);
+    const startNext = new Date(endThis);
+    startNext.setDate(endThis.getDate() + 1);
+    startNext.setHours(0, 0, 0, 0);
+    const endNext = new Date(startNext);
+    endNext.setDate(startNext.getDate() + 6);
+    endNext.setHours(23, 59, 59, 999);
+    return { thisWeekEnd: endThis, nextWeekStart: startNext, nextWeekEnd: endNext };
   }, []);
+
+  const { data: picks, error: picksError, isLoading: picksLoading } = useSWR('picksToday', () => getPicksToday());
+  const { data: metrics, error: metricsError, isLoading: metricsLoading } = useSWR('metrics', () => getMetrics());
+  const { data: leaguesData, error: leaguesError, isLoading: leaguesLoading } = useSWR('leagues', () => getLeagues());
+  
+  const loading = picksLoading || metricsLoading || leaguesLoading;
+  const fetchError = picksError || metricsError || leaguesError;
+  const error = fetchError ? "No se pudo conectar al backend. Verifica el servidor local en /python." : null;
+  const leagues = leaguesData || [];
 
   const countsBySlug = useMemo(() => {
     const map: Record<string, number> = {};
@@ -83,7 +83,24 @@ export default function DashboardPage() {
   const filteredPicks = useMemo(() => {
     if (!picks) return [];
     let out = picks;
+
+    if (selectedWeek === 'this_week') {
+      out = out.filter(p => {
+        const d = new Date(p.kickoff);
+        return d <= thisWeekEnd;
+      });
+    } else if (selectedWeek === 'next_week') {
+      out = out.filter(p => {
+        const d = new Date(p.kickoff);
+        return d >= nextWeekStart && d <= nextWeekEnd;
+      });
+    }
+
     if (selectedLeague !== null) out = out.filter((p) => p.leagueSlug === selectedLeague);
+    if (pickFilter === 'high_ev') out = out.filter((p) => (p.evPct ?? 0) >= 8);
+    if (pickFilter === 'divergence') out = out.filter((p) => Math.abs(p.edgePp ?? 0) >= 5);
+    if (pickFilter === 'vip') out = out.filter((p) => p.status === 'vip');
+    if (pickFilter === 'premium') out = out.filter((p) => p.status === 'premium');
     if (query.trim()) {
       const q = query.trim().toLowerCase();
       out = out.filter(
@@ -94,7 +111,7 @@ export default function DashboardPage() {
       );
     }
     return out;
-  }, [picks, selectedLeague, query]);
+  }, [picks, selectedLeague, pickFilter, query, selectedWeek, thisWeekEnd, nextWeekStart, nextWeekEnd]);
 
   const topPick = useMemo(() => {
     if (!picks || picks.length === 0) return null;
@@ -121,6 +138,8 @@ export default function DashboardPage() {
         <section className="flex flex-col gap-5 min-w-0">
           <SmartAlerts />
           
+          <RankCard xp={xp} />
+
           {/* Search */}
           <div className="relative">
             <Search className="w-4 h-4 text-zinc-500 absolute left-4 top-1/2 -translate-y-1/2" />
@@ -135,17 +154,45 @@ export default function DashboardPage() {
 
           {/* Chip row */}
           <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-1 px-1">
-            <TypeChip active icon={<Sparkles className="w-3.5 h-3.5" />} label="Todos" />
+            <TypeChip
+              active={pickFilter === 'all'}
+              onClick={() => setPickFilter('all')}
+              icon={<Sparkles className="w-3.5 h-3.5" />}
+              label="Todos"
+            />
             <TypeChip
               icon={<Crown className="w-3.5 h-3.5" />}
               label="Pick del día"
               accent="amber"
               href="/dashboard/pick-del-dia"
             />
-            <TypeChip icon={<Flame className="w-3.5 h-3.5" />} label="Alto EV" />
-            <TypeChip icon={<Zap className="w-3.5 h-3.5" />} label="Divergencias" />
-            <TypeChip icon={<Target className="w-3.5 h-3.5" />} label="VIP" accent="amber" count={tierCounts.vip} />
-            <TypeChip icon={<TrendingUp className="w-3.5 h-3.5" />} label="Premium" count={tierCounts.premium} />
+            <TypeChip
+              active={pickFilter === 'high_ev'}
+              onClick={() => setPickFilter((v) => (v === 'high_ev' ? 'all' : 'high_ev'))}
+              icon={<Flame className="w-3.5 h-3.5" />}
+              label="Alto EV"
+            />
+            <TypeChip
+              active={pickFilter === 'divergence'}
+              onClick={() => setPickFilter((v) => (v === 'divergence' ? 'all' : 'divergence'))}
+              icon={<Zap className="w-3.5 h-3.5" />}
+              label="Divergencias"
+            />
+            <TypeChip
+              active={pickFilter === 'vip'}
+              onClick={() => setPickFilter((v) => (v === 'vip' ? 'all' : 'vip'))}
+              icon={<Target className="w-3.5 h-3.5" />}
+              label="VIP"
+              accent="amber"
+              count={tierCounts.vip}
+            />
+            <TypeChip
+              active={pickFilter === 'premium'}
+              onClick={() => setPickFilter((v) => (v === 'premium' ? 'all' : 'premium'))}
+              icon={<TrendingUp className="w-3.5 h-3.5" />}
+              label="Premium"
+              count={tierCounts.premium}
+            />
           </div>
 
           {/* 3 promo banners */}
@@ -186,7 +233,7 @@ export default function DashboardPage() {
               <BankrollTracker />
             </div>
           </div>
-          <MetricsRow metrics={metrics} picksCount={picks?.length} tierCounts={tierCounts} />
+          <MetricsRow metrics={metrics ?? null} picksCount={picks?.length} tierCounts={tierCounts} />
 
           {/* Featured */}
           {highlights && !loading && !error && (
@@ -225,16 +272,15 @@ export default function DashboardPage() {
                   locked={shouldLock(highlights.topConfidence?.status, userTier)}
                 />
                 <HighlightCard
-                  label="Mejor edge"
+                  label="Mejor Cuota"
                   value={
-                    highlights.topEdge
-                      ? `${(highlights.topEdge.edgePp ?? 0) >= 0 ? '+' : ''}${highlights.topEdge.edgePp?.toFixed(1)}pp`
+                    highlights.topEdge?.odds
+                      ? `@${highlights.topEdge.odds.toFixed(2)}`
                       : '—'
                   }
                   sub={highlights.topEdge ? highlights.topEdge.match : '—'}
                   tier={highlights.topEdge?.status}
                   locked={shouldLock(highlights.topEdge?.status, userTier)}
-                  valueTone="emerald"
                 />
                 <HighlightCard
                   label="Stake óptimo (Kelly)"
@@ -252,10 +298,10 @@ export default function DashboardPage() {
             <div className="px-5 py-4 border-b border-white/[0.06] flex items-end justify-between gap-4">
               <div>
                 <h2 className="font-sans font-bold text-[16px] text-white tracking-tight flex items-center gap-2">
-                  <Globe2 className="w-4 h-4 text-zinc-400" />
+                  <CalendarDays className="w-4 h-4 text-zinc-400" />
                   {selectedLeague
                     ? leagues.find((l) => l.slug === selectedLeague)?.name
-                    : 'Picks del día'}
+                    : 'Picks por Fecha'}
                 </h2>
                 <p className="font-sans text-[11.5px] text-zinc-500 mt-0.5">
                   {filteredPicks.length} partido{filteredPicks.length === 1 ? '' : 's'} · ordenados por EV
@@ -267,6 +313,31 @@ export default function DashboardPage() {
                   LIVE UPDATING
                 </div>
               )}
+            </div>
+
+            <div className="border-b border-white/[0.06] bg-black/20">
+              <div className="flex gap-2 px-5 py-3">
+                <button
+                  onClick={() => setSelectedWeek('this_week')}
+                  className={`px-4 py-2 rounded-lg font-sans text-[12px] font-semibold transition-colors ${
+                    selectedWeek === 'this_week'
+                      ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400'
+                      : 'bg-white/[0.03] border border-white/[0.04] text-zinc-400 hover:text-white hover:border-white/[0.1]'
+                  }`}
+                >
+                  Esta semana
+                </button>
+                <button
+                  onClick={() => setSelectedWeek('next_week')}
+                  className={`px-4 py-2 rounded-lg font-sans text-[12px] font-semibold transition-colors ${
+                    selectedWeek === 'next_week'
+                      ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400'
+                      : 'bg-white/[0.03] border border-white/[0.04] text-zinc-400 hover:text-white hover:border-white/[0.1]'
+                  }`}
+                >
+                  Próxima semana
+                </button>
+              </div>
             </div>
 
             {loading && <TableSkeleton />}
@@ -324,6 +395,7 @@ function TypeChip({
   accent = 'neutral',
   count,
   href,
+  onClick,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -331,6 +403,7 @@ function TypeChip({
   accent?: 'neutral' | 'amber';
   count?: number;
   href?: string;
+  onClick?: () => void;
 }) {
   const base =
     'shrink-0 h-[34px] px-3.5 rounded-md flex items-center gap-1.5 font-sans text-[12px] font-semibold transition-colors';
@@ -366,7 +439,7 @@ function TypeChip({
     );
   }
   return (
-    <button type="button" className={className}>
+    <button type="button" className={className} onClick={onClick}>
       {content}
     </button>
   );

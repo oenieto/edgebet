@@ -98,4 +98,9 @@ class DataCleaner:
         df["Result"] = df["FTR"].map(result_map)
         df = df.dropna(subset=["Result"])
         df["Result"] = df["Result"].astype(int)
+        
+        if "FTHG" in df.columns and "FTAG" in df.columns:
+            df["TotalGoals"] = df["FTHG"] + df["FTAG"]
+            df["Over2_5"] = (df["TotalGoals"] > 2.5).astype(int)
+            
         return df

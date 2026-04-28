@@ -47,11 +47,17 @@ def run_full_pipeline(
     for team, rating in elo.top_teams(5):
         print(f"  {team:25s} {rating:.0f}")
 
-    # 5. Train models
-    print("\n[5/6] Training models...")
-    X, y, feature_names = prepare_model_data(featured)
+    # 5. Train models (Moneyline)
+    print("\n[5/6] Training models (Moneyline)...")
+    X, y, feature_names = prepare_model_data(featured, target_col="Result")
     cv_results = train_with_cv(X, y)
-    ensemble, scaler = build_and_save_ensemble(X, y)
+    ensemble, scaler = build_and_save_ensemble(X, y, prefix="ensemble_ml")
+    
+    print("\n[5.5/6] Training models (Over/Under 2.5)...")
+    if "Over2_5" in featured.columns:
+        X_ou, y_ou, _ = prepare_model_data(featured.dropna(subset=["Over2_5"]), target_col="Over2_5")
+        cv_ou = train_with_cv(X_ou, y_ou)
+        ensemble_ou, scaler_ou = build_and_save_ensemble(X_ou, y_ou, prefix="ensemble_ou", target_names=["Under", "Over"])
 
     # 6. Backtest
     if run_backtest:

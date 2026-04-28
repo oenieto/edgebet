@@ -1,17 +1,25 @@
 'use client';
 
-import { CheckCircle2, Lock, Target } from 'lucide-react';
+import { useState } from 'react';
+import { CheckCircle2, Lock, Target, ChevronRight } from 'lucide-react';
 import type { Pick } from '@/types';
+import PickDetailModal from './PickDetailModal';
 
 interface PickCardProps {
   pick: Pick;
   locked?: boolean;
 }
 
-const predictionLabel: Record<Pick['prediction'], string> = {
+const predictionLabel: Record<string, string> = {
   home: 'Gana local',
   draw: 'Empate',
   away: 'Gana visitante',
+  over_1_5: 'Más de 1.5 goles',
+  under_1_5: 'Menos de 1.5 goles',
+  over_2_5: 'Más de 2.5 goles',
+  under_2_5: 'Menos de 2.5 goles',
+  over_3_5: 'Más de 3.5 goles',
+  under_3_5: 'Menos de 3.5 goles',
 };
 
 function formatKickoff(iso: string): string {
@@ -36,13 +44,9 @@ function probPercent(value: number): string {
 }
 
 export default function PickCard({ pick, locked = false }: PickCardProps) {
+  const [showModal, setShowModal] = useState(false);
   const isLocked = locked && pick.status !== 'free';
-  const mainProb =
-    pick.prediction === 'home'
-      ? pick.mlProb.home
-      : pick.prediction === 'draw'
-        ? pick.mlProb.draw
-        : pick.mlProb.away;
+  const mainProb = pick.mlProb[pick.prediction] ?? 0;
 
   return (
     <div className="bg-surface-container-lowest border border-surface-container-low rounded-2xl p-6 relative flex flex-col overflow-hidden">
@@ -95,53 +99,37 @@ export default function PickCard({ pick, locked = false }: PickCardProps) {
           </div>
 
           <div className="flex flex-wrap gap-2 mb-4">
-            <SourcePill label="ML" prob={mainProb} />
-            {pick.polyProb && (
+            <SourcePill
+              label="ML" 
+              prob={mainProb} 
+            />
+            {pick.polyProb && pick.polyProb[pick.prediction] && (
               <SourcePill
                 label="Poly"
-                prob={
-                  pick.prediction === 'home'
-                    ? pick.polyProb.home
-                    : pick.prediction === 'draw'
-                      ? pick.polyProb.draw
-                      : pick.polyProb.away
-                }
+                prob={pick.polyProb[pick.prediction]}
               />
             )}
-            <SourcePill
-              label="BK"
-              prob={
-                pick.prediction === 'home'
-                  ? pick.bkProb.home
-                  : pick.prediction === 'draw'
-                    ? pick.bkProb.draw
-                    : pick.bkProb.away
-              }
-            />
+            {pick.bkProb && pick.bkProb[pick.prediction] && (
+              <SourcePill
+                label="BK"
+                prob={pick.bkProb[pick.prediction]}
+              />
+            )}
           </div>
 
-          <div className="border-l-2 border-primary pl-3 mb-4">
-            <p className="font-sans text-[13px] text-on-surface-variant leading-relaxed">
-              {pick.aiReasoning}
-            </p>
+          <div className="mt-auto pt-3 border-t border-surface-container-low">
+            <button
+              onClick={() => setShowModal(true)}
+              className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-surface-container hover:bg-surface-container-high transition-colors text-on-surface text-[13px] font-semibold"
+            >
+              Ver análisis y recomendación
+              <ChevronRight className="w-4 h-4 text-tertiary" />
+            </button>
           </div>
-
-          <div className="mt-auto pt-3 border-t border-surface-container-low flex items-center justify-between">
-            <div className="flex items-center gap-2 text-tertiary">
-              <CheckCircle2 className="w-4 h-4" />
-              <span className="font-sans text-[12px]">Stake sugerido</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="font-mono font-bold text-[13px] text-on-surface">
-                {pick.suggestedStake.toFixed(1)}%
-              </span>
-              {pick.odds != null && (
-                <span className="font-mono font-bold text-[13px] text-secondary">
-                  @{pick.odds.toFixed(2)}
-                </span>
-              )}
-            </div>
-          </div>
+          
+          {showModal && (
+            <PickDetailModal pick={pick} onClose={() => setShowModal(false)} />
+          )}
         </>
       )}
     </div>

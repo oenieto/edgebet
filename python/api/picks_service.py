@@ -13,6 +13,8 @@ Pipeline por fixture:
 """
 from __future__ import annotations
 
+import json
+import os
 import random
 import sys
 import time
@@ -21,6 +23,13 @@ from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from uuid import uuid4
+
+try:
+    import redis
+    REDIS_URL = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+    redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+except Exception:
+    redis_client = None
 
 # TTL en segundos para el pool completo de picks. Los picks solo cambian
 # cuando cambia la lista de fixtures o el modelo — 5 min es razonable.
@@ -177,12 +186,12 @@ def _build_pick_for_match(
     away_team: str,
     seed: int,
     fixture_row: dict | None = None,
-) -> dict | None:
+) -> list[dict]:
     try:
         matches, ratings, cfg = _load_league(slug)
     except Exception as exc:
         print(f"[picks_service] no pude cargar liga {slug}: {exc}")
-        return None
+        return []
 
     from api.fast_loader import compute_team_form
     from api import predictor
@@ -361,21 +370,122 @@ def _build_pick_for_match(
         except Exception as exc:
             print(f"[picks_service] claude narrative falló: {exc}")
 
-    return result
+    result["market"] = "ML"
+    out_picks = [result]
+
+    # Generación del Pick Over/Under usando métricas ofensivas/defensivas (Poisson)
+    home_gf = float(home_form.get("avg_GF", 1.2))
+    home_ga = float(home_form.get("avg_GA", 1.2))
+    away_gf = float(away_form.get("avg_GF", 1.1))
+    away_ga = float(away_form.get("avg_GA", 1.3))
+    
+    exp_total = (home_gf + away_ga + away_gf + home_ga) / 2
+    
+    import math
+    def poisson_pmf(k, lam):
+        return (lam ** k * math.exp(-lam)) / math.factorial(k)
+        
+    p0 = poisson_pmf(0, exp_total)
+    p1 = poisson_pmf(1, exp_total)
+    p2 = poisson_pmf(2, exp_total)
+    p3 = poisson_pmf(3, exp_total)
+    
+    u15 = p0 + p1
+    o15 = 1 - u15
+    u25 = u15 + p2
+    o25 = 1 - u25
+    u35 = u25 + p3
+    o35 = 1 - u35
+    
+    if exp_total >= 3.3:
+        target_line = "3_5"
+        prob_over, prob_under = o35, u35
+        ai_msg = f"Equipos con esquemas ultraofensivos y problemas defensivos ({exp_total:.1f} goles esperados). El Over 3.5 ofrece un ratio riesgo/beneficio excelente."
+    elif exp_total >= 2.6:
+        target_line = "2_5"
+        prob_over, prob_under = o25, u25
+        ai_msg = f"Tendencia a partidos abiertos ({exp_total:.1f} goles esperados). Over 2.5 es la línea más segura."
+    elif exp_total <= 1.8:
+        target_line = "1_5"
+        prob_over, prob_under = o15, u15
+        ai_msg = f"Defensas férreas y muy bajo goleo proyectado ({exp_total:.1f}). Under 1.5 es arriesgado pero ofrece gran valor estadístico."
+    elif exp_total <= 2.3:
+        target_line = "2_5"
+        prob_over, prob_under = o25, u25
+        ai_msg = f"Partido que se proyecta cerrado y táctico ({exp_total:.1f} goles esperados). Under 2.5 tiene un alto margen de seguridad."
+    else:
+        target_line = "2_5"
+        prob_over, prob_under = o25, u25
+        ai_msg = f"Promedio de goleo equilibrado ({exp_total:.1f} goles esperados). Recomendamos la línea estándar de 2.5."
+    
+    ou_pred_code = f"over_{target_line}" if prob_over > prob_under else f"under_{target_line}"
+    ou_conf = max(prob_over, prob_under) * 100
+    
+    fair_odds = 1.0 / max(prob_over, prob_under)
+    synthetic_odds = max(1.01, round(fair_odds * 0.95, 2))
+    
+    ou_result = {
+        "id": str(uuid4()),
+        "market": "OU",
+        "match": f"{home_team} vs {away_team}",
+        "homeTeam": home_team,
+        "awayTeam": away_team,
+        "league": cfg.name,
+        "leagueSlug": slug,
+        "kickoff": "2026-04-19T16:30:00Z",
+        "prediction": ou_pred_code,
+        "confidence": int(round(ou_conf)),
+        "mlProb": {f"over_{target_line}": round(prob_over, 4), f"under_{target_line}": round(prob_under, 4)},
+        "polyProb": None,
+        "bkProb": {f"over_{target_line}": round(prob_over, 4), f"under_{target_line}": round(prob_under, 4)},
+        "blendedProb": {f"over_{target_line}": round(prob_over, 4), f"under_{target_line}": round(prob_under, 4)},
+        "aiReasoning": ai_msg,
+        "suggestedStake": 1.5,
+        "status": "free",
+        "odds": synthetic_odds,
+        "edgePp": 0.0,
+        "evPct": 0.0,
+        "sourcesAgree": True,
+        "modelSource": "poisson_dynamic",
+        "bookmakerSource": "synthetic",
+        "marketVerified": False,
+        "polyMeta": None,
+        "allOutcomes": []
+    }
+    
+    out_picks.append(ou_result)
+
+    return out_picks
 
 
 def get_todays_picks(league_slug: str | None = None) -> list[dict]:
-    cache_key = league_slug or "__all__"
+    cache_key = f"picks:{league_slug or '__all__'}"
     now = time.time()
-    cached = _picks_cache.get(cache_key)
-    if cached and (now - cached[0]) < _PICKS_TTL_SECONDS:
-        return cached[1]
+    
+    if redis_client:
+        try:
+            cached = redis_client.get(cache_key)
+            if cached:
+                return json.loads(cached)
+        except Exception as e:
+            print(f"[picks_service] redis read error: {e}")
+    else:
+        cached_mem = _picks_cache.get(cache_key)
+        if cached_mem and (now - cached_mem[0]) < _PICKS_TTL_SECONDS:
+            return cached_mem[1]
 
     result = _compute_picks(league_slug)
-    # Cache con TTL largo si hay resultados; corto si está vacío (red caída o sin
-    # fixtures hoy) para no hammerear la red pero permitir recuperación rápida.
-    ttl_entry = (now, result) if result else (now - _PICKS_TTL_SECONDS + 30, result)
-    _picks_cache[cache_key] = ttl_entry
+    
+    if redis_client:
+        try:
+            ttl = _PICKS_TTL_SECONDS if result else 30
+            redis_client.setex(cache_key, ttl, json.dumps(result))
+        except Exception as e:
+            print(f"[picks_service] redis write error: {e}")
+    else:
+        ttl_entry = (now, result) if result else (now - _PICKS_TTL_SECONDS + 30, result)
+        _picks_cache[cache_key] = ttl_entry
+        
     return result
 
 
@@ -401,8 +511,8 @@ def _compute_picks(league_slug: str | None = None) -> list[dict]:
                 matchups.append((cl.home, cl.away, cl.date, cl.time, None))
         else:
             league_fixtures = [f for f in fixtures if f.get("leagueSlug") == slug]
-            # Limitamos a próximos 7 días para mantener el pool relevante
-            for row in league_fixtures[:20]:
+            # Ampliamos a próximos 14 días (aprox 40 partidos por liga) para mantener el pool relevante
+            for row in league_fixtures[:40]:
                 matchups.append((
                     row["HomeTeam"], row["AwayTeam"],
                     row.get("Date", ""), row.get("Time", ""),
@@ -425,11 +535,11 @@ def _compute_picks(league_slug: str | None = None) -> list[dict]:
                 continue
 
             seed = i * 100 + j
-            pick = _build_pick_for_match(slug, home, away, seed=seed, fixture_row=row)
-            if pick:
+            match_picks = _build_pick_for_match(slug, home, away, seed=seed, fixture_row=row)
+            for p in match_picks:
                 if match_dt:
-                    pick["kickoff"] = match_dt.isoformat()
-                picks.append(pick)
+                    p["kickoff"] = match_dt.isoformat()
+                picks.append(p)
 
     # Orden: primero picks con línea real (por EV desc), luego el resto (por confianza desc).
     # Así los picks "market-verified" suben arriba y las predicciones informativas quedan abajo.

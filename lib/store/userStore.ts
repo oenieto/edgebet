@@ -16,6 +16,7 @@ export interface UserProfile {
   weekly_limit: number;
   daily_limit: number;
   favorite_leagues: string[];
+  xp?: number;
 }
 
 export interface BankrollData {

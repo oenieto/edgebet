@@ -1,9 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image';
-import { ArrowRight, Zap, CheckCircle2, TrendingUp, Target, Lock, LogOut } from 'lucide-react';
+import { Activity, ArrowRight, Brain, CheckCircle2, LineChart, Lock, LogOut, ShieldCheck, Target, Zap } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import Logo from '@/components/brand/Logo';
 
 export default function HomePage() {
   const { user, isAuthenticated, isHydrated, logout } = useAuth();
@@ -12,41 +12,40 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-background text-on-surface selection:bg-amber-500/30 selection:text-amber-900">
-      {/* Section 1: Sticky Navbar */}
-      <nav className="bg-white/80 dark:bg-[#0a0a0c]/80 backdrop-blur-md sticky top-0 z-50 w-full shadow-sm">
-        <div className="flex items-center justify-between px-8 py-4 max-w-7xl mx-auto">
-          <div className="flex items-center space-x-8">
-            <Link href="/" className="flex items-center">
-              <Image
-                src="/inverso.png"
-                alt="Edgebet"
-                width={160}
-                height={40}
-                priority
-                className="h-[36px] w-auto object-cover"
-                style={{ clipPath: 'inset(0px 0px 10px 0px)' }}
+      {/* Section 1: Premium Navbar */}
+      <nav className="sticky top-0 z-50 bg-[#0a0a0c]/85 backdrop-blur-xl border-b border-white/[0.06]">
+        <div className="max-w-7xl mx-auto px-6 lg:px-8 h-[68px] flex items-center justify-between gap-6">
+          <div className="flex items-center gap-10">
+            <Logo variant="horizontal" theme="dark" height={36} href="/" priority />
+            <div className="hidden md:flex items-center gap-1">
+              <NavLink href="#como-funciona" label="Cómo funciona" />
+              <NavLink href="#picks-dia" label="Picks del día" active />
+              <NavLink
+                href={isAuthenticated ? '/dashboard/history' : '/login'}
+                label="Historial"
               />
-            </Link>
-            <div className="hidden md:flex space-x-6">
-              <Link href="#como-funciona" className="text-slate-600 dark:text-slate-400 font-medium hover:text-amber-500 transition-colors duration-200">Cómo funciona</Link>
-              <Link href="#picks-dia" className="text-amber-600 dark:text-amber-400 font-semibold border-b-2 border-amber-500 hover:text-amber-500 transition-colors duration-200 pb-1">Picks del día</Link>
-              <Link href={isAuthenticated ? '/dashboard/history' : '/login'} className="text-slate-600 dark:text-slate-400 font-medium hover:text-amber-500 transition-colors duration-200">Historial</Link>
-              <Link href="/pricing" className="text-slate-600 dark:text-slate-400 font-medium hover:text-amber-500 transition-colors duration-200">Precios</Link>
-              <Link href="#comunidad" className="text-slate-600 dark:text-slate-400 font-medium hover:text-amber-500 transition-colors duration-200">Comunidad</Link>
+              <NavLink href="/pricing" label="Precios" />
+              <NavLink href="#comunidad" label="Comunidad" />
             </div>
           </div>
-          <div className="flex items-center space-x-4">
+
+          <div className="flex items-center gap-3">
             {isHydrated && isAuthenticated && user ? (
               <>
-                <span className="hidden md:inline-flex items-center gap-2 text-sm font-medium text-slate-600 dark:text-slate-300">
-                  <span className="w-7 h-7 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center font-mono text-xs font-bold">
+                <Link
+                  href="/dashboard/profile"
+                  className="hidden md:inline-flex items-center gap-2 h-[36px] px-3 rounded-full bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] transition-colors"
+                >
+                  <span className="w-6 h-6 rounded-full bg-amber-400/15 text-amber-300 flex items-center justify-center font-mono text-[11px] font-bold">
                     {user.name.charAt(0).toUpperCase()}
                   </span>
-                  {user.name}
-                </span>
+                  <span className="font-sans text-[13px] font-medium text-zinc-200 max-w-[120px] truncate">
+                    {user.name}
+                  </span>
+                </Link>
                 <Link
                   href="/dashboard"
-                  className="bg-amber-400 text-black rounded-full px-6 py-2.5 font-bold hover:bg-amber-500 transition-colors shadow-sm"
+                  className="h-[40px] px-5 inline-flex items-center bg-amber-400 text-[#0a0a0c] rounded-full font-sans font-bold text-[13px] hover:bg-amber-300 transition-colors"
                 >
                   Dashboard
                 </Link>
@@ -54,30 +53,30 @@ export default function HomePage() {
                   type="button"
                   onClick={logout}
                   aria-label="Cerrar sesión"
-                  className="text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors"
+                  className="text-zinc-500 hover:text-white transition-colors"
                 >
-                  <LogOut className="w-5 h-5" />
+                  <LogOut className="w-4 h-4" />
                 </button>
               </>
             ) : (
               <>
                 <Link
                   href="/login"
-                  className="text-slate-600 dark:text-slate-400 font-medium hover:text-amber-500 transition-colors duration-200 hidden md:block"
+                  className="hidden sm:block font-sans text-[13px] font-medium text-zinc-400 hover:text-white transition-colors"
                 >
                   Iniciar sesión
                 </Link>
                 <Link
                   href={primaryCtaHref}
-                  className="bg-amber-400 text-black rounded-full px-6 py-2.5 font-bold hover:bg-amber-500 transition-colors shadow-sm"
+                  className="h-[40px] px-5 inline-flex items-center gap-1.5 bg-amber-400 text-[#0a0a0c] rounded-full font-sans font-bold text-[13px] hover:bg-amber-300 transition-colors shadow-[0_0_30px_rgba(251,191,36,0.18)]"
                 >
                   {primaryCtaLabel}
+                  <ArrowRight className="w-3.5 h-3.5" />
                 </Link>
               </>
             )}
           </div>
         </div>
-        <div className="bg-slate-100 dark:bg-zinc-800/50 h-[1px] w-full"></div>
       </nav>
 
       {/* Section 2: Hero */}
@@ -170,45 +169,62 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Section 3: Métricas */}
-      <section id="como-funciona" className="py-20 px-8 bg-surface border-b border-surface-container-high scroll-mt-20">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            <div className="bg-surface-container-lowest p-6 rounded-2xl border border-surface-container-low relative overflow-hidden transition-all hover:bg-surface-container-low group">
-              <div className="text-sm text-tertiary font-medium mb-2">Accuracy (30d)</div>
-              <div className="flex items-end justify-between">
-                <div className="text-3xl font-bold font-mono text-on-surface">61.4%</div>
-                <div className="h-8 w-24 bg-surface-container-high rounded flex items-end overflow-hidden">
-                  <div className="w-1/6 bg-amber-500/40 h-[40%] ml-[2px]"></div>
-                  <div className="w-1/6 bg-amber-500/50 h-[50%] ml-[2px]"></div>
-                  <div className="w-1/6 bg-amber-500/70 h-[80%] ml-[2px]"></div>
-                  <div className="w-1/6 bg-error/40 h-[30%] ml-[2px]"></div>
-                  <div className="w-1/6 bg-amber-500/80 h-[90%] ml-[2px]"></div>
-                  <div className="w-1/6 bg-amber-500 h-[100%] ml-[2px]"></div>
-                </div>
-              </div>
+      {/* Section 3: Cómo funciona — pipeline visual */}
+      <section
+        id="como-funciona"
+        className="py-24 px-6 lg:px-8 bg-[#0a0a0c] border-y border-white/[0.06] scroll-mt-20 relative overflow-hidden"
+      >
+        <div
+          className="absolute -top-40 left-1/2 -translate-x-1/2 w-[1100px] h-[600px] rounded-full pointer-events-none opacity-50"
+          style={{
+            background:
+              'radial-gradient(circle, rgba(251,191,36,0.10) 0%, rgba(251,191,36,0) 60%)',
+          }}
+        />
+        <div className="max-w-7xl mx-auto relative">
+          <div className="text-center mb-14 max-w-2xl mx-auto">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-300 font-mono text-[10px] uppercase tracking-widest font-bold mb-5">
+              <ShieldCheck className="w-3 h-3" />
+              Cómo funciona
             </div>
+            <h2 className="font-sans font-extrabold text-[28px] md:text-[40px] text-white tracking-tight leading-[1.05] mb-4">
+              Pipeline cuantitativo, no <span className="text-amber-300">corazonadas</span>.
+            </h2>
+            <p className="font-sans text-[15px] text-zinc-400">
+              Tres etapas. Cada pick pasa por las tres antes de aparecer en tu dashboard.
+            </p>
+          </div>
 
-            <div className="bg-surface-container-lowest p-6 rounded-2xl border border-surface-container-low transition-all hover:bg-surface-container-low">
-              <div className="text-sm text-tertiary font-medium mb-2">ROI Mensual</div>
-              <div className="text-3xl font-bold font-mono text-amber-500 flex items-center">
-                <TrendingUp className="w-6 h-6 mr-1" />
-                +24.8%
-              </div>
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <PipelineStep
+              step="01"
+              icon={<Activity className="w-5 h-5" />}
+              title="Ingesta de datos"
+              desc="Cuotas Pinnacle/bookies + probabilidades Polymarket + 10+ años de resultados Football-Data."
+              tags={['Pinnacle', 'Polymarket', 'Football-Data']}
+            />
+            <PipelineStep
+              step="02"
+              icon={<Brain className="w-5 h-5" />}
+              title="Modelo ML"
+              desc="Ensemble (XGBoost + Logistic) con TimeSeriesSplit. Features: forma, xG, ELO, h2h, gestión de riesgo."
+              tags={['XGBoost', 'TimeSeriesSplit', 'Brier', 'Calibrated']}
+              accent
+            />
+            <PipelineStep
+              step="03"
+              icon={<LineChart className="w-5 h-5" />}
+              title="Detección de edge"
+              desc="Comparamos prob. del modelo vs implícita de la cuota. Solo publicamos picks con edge ≥ 3%."
+              tags={['Edge ≥ 3%', 'Kelly', 'Verificado']}
+            />
+          </div>
 
-            <div className="bg-surface-container-lowest p-6 rounded-2xl border border-surface-container-low transition-all hover:bg-surface-container-low">
-              <div className="text-sm text-tertiary font-medium mb-2">Picks Verificados</div>
-              <div className="text-3xl font-bold font-mono text-on-surface">847</div>
-            </div>
-
-            <div className="bg-surface-container-lowest p-6 rounded-2xl border border-surface-container-low transition-all hover:bg-surface-container-low">
-              <div className="text-sm text-tertiary font-medium mb-2 flex items-center">
-                Divergencias Activas
-                <span className="w-2 h-2 rounded-full bg-amber-500 ml-2 animate-pulse"></span>
-              </div>
-              <div className="text-3xl font-bold font-mono text-amber-500">8 hoy</div>
-            </div>
+          <div className="mt-14 grid grid-cols-2 md:grid-cols-4 gap-4">
+            <KpiTile label="Accuracy 30d" value="61.4%" tone="amber" />
+            <KpiTile label="ROI mensual" value="+24.8%" tone="emerald" />
+            <KpiTile label="Picks auditados" value="847" />
+            <KpiTile label="Divergencias hoy" value="8" pulse />
           </div>
         </div>
       </section>
@@ -343,6 +359,111 @@ export default function HomePage() {
           </div>
         </div>
       </footer>
+    </div>
+  );
+}
+
+function NavLink({
+  href,
+  label,
+  active = false,
+}: {
+  href: string;
+  label: string;
+  active?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`relative px-3.5 h-[40px] flex items-center font-sans text-[13px] font-semibold tracking-tight transition-colors ${
+        active ? 'text-amber-300' : 'text-zinc-400 hover:text-white'
+      }`}
+    >
+      {label}
+      {active && (
+        <span className="absolute -bottom-[1px] left-3 right-3 h-[2px] rounded-full bg-amber-300" />
+      )}
+    </Link>
+  );
+}
+
+function PipelineStep({
+  step,
+  icon,
+  title,
+  desc,
+  tags,
+  accent = false,
+}: {
+  step: string;
+  icon: React.ReactNode;
+  title: string;
+  desc: string;
+  tags: string[];
+  accent?: boolean;
+}) {
+  return (
+    <div
+      className={`relative rounded-2xl border p-6 ${
+        accent
+          ? 'border-amber-500/20 bg-gradient-to-b from-amber-500/[0.06] to-[#111114]'
+          : 'border-white/[0.08] bg-[#111114]'
+      }`}
+    >
+      <div className="flex items-center justify-between mb-4">
+        <div
+          className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+            accent ? 'bg-amber-400/20 text-amber-300' : 'bg-white/[0.06] text-zinc-300'
+          }`}
+        >
+          {icon}
+        </div>
+        <span className="font-mono text-[11px] uppercase tracking-widest text-zinc-600 font-bold">
+          {step}
+        </span>
+      </div>
+      <h3 className="font-sans font-bold text-[18px] text-white mb-2 tracking-tight">{title}</h3>
+      <p className="font-sans text-[13px] text-zinc-400 leading-relaxed mb-4">{desc}</p>
+      <div className="flex flex-wrap gap-1.5">
+        {tags.map((t) => (
+          <span
+            key={t}
+            className="font-mono text-[10px] px-2 py-1 rounded-md bg-white/[0.04] text-zinc-400 border border-white/[0.06]"
+          >
+            {t}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function KpiTile({
+  label,
+  value,
+  tone,
+  pulse = false,
+}: {
+  label: string;
+  value: string;
+  tone?: 'amber' | 'emerald';
+  pulse?: boolean;
+}) {
+  const valueClass =
+    tone === 'amber' ? 'text-amber-300' : tone === 'emerald' ? 'text-emerald-400' : 'text-white';
+  return (
+    <div className="bg-[#111114] border border-white/[0.06] rounded-xl p-5">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-500 font-semibold">
+          {label}
+        </span>
+        {pulse && (
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+        )}
+      </div>
+      <div className={`font-mono font-extrabold text-[28px] tracking-tight ${valueClass}`}>
+        {value}
+      </div>
     </div>
   );
 }

@@ -1,10 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { Crown, Flame, Globe2, Layers, Star, TrendingUp, TrendingDown, LogOut, Settings, Wallet, User } from 'lucide-react';
+import { Crown, Flame, Globe2, Layers, LogOut, Settings, Star, Tag, TrendingDown, TrendingUp, User, Wallet } from 'lucide-react';
+
 import type { LeagueInfo } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUserStore } from '@/lib/store/userStore';
+import { flagForLeague } from '@/lib/leagues/flags';
 
 interface LeagueRailProps {
   leagues: LeagueInfo[];
@@ -31,8 +33,7 @@ export default function LeagueRail({
   const sortedLeagues = [...leagues].sort((a, b) => a.name.localeCompare(b.name));
 
   return (
-    <aside className="bg-[#111114] border border-white/[0.06] rounded-xl sticky top-[80px] overflow-y-auto scrollbar-hide flex flex-col h-[calc(100vh-104px)]">
-      {/* Pick del día — top feature */}
+    <aside className="bg-[#111114] border border-white/[0.06] rounded-xl sticky top-[80px] overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] flex flex-col h-[calc(100vh-104px)]">
       <Link
         href="/dashboard/pick-del-dia"
         className="block p-3 border-b border-white/[0.06] bg-gradient-to-br from-amber-500/10 to-transparent hover:from-amber-500/20 group transition-colors"
@@ -55,12 +56,8 @@ export default function LeagueRail({
         </div>
       </Link>
 
-      {/* Populares */}
       <div className="p-3">
-        <div className="px-2 pb-2 flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] font-sans font-bold text-zinc-500">
-          <Flame className="w-3 h-3" />
-          Populares
-        </div>
+        <SectionLabel icon={<Flame className="w-3 h-3" />}>Populares</SectionLabel>
         <ul className="flex flex-col gap-0.5">
           <RailButton
             active={selected === null}
@@ -97,16 +94,13 @@ export default function LeagueRail({
         </ul>
       </div>
 
-      {/* A-Z ligas */}
       <div className="p-3 border-t border-white/[0.06]">
-        <div className="px-2 pb-2 flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] font-sans font-bold text-zinc-500">
-          <Layers className="w-3 h-3" />
-          Ligas A-Z
-        </div>
+        <SectionLabel icon={<Layers className="w-3 h-3" />}>Ligas</SectionLabel>
         <ul className="flex flex-col gap-0.5">
           {sortedLeagues.map((lg) => {
             const active = selected === lg.slug;
             const count = counts?.[lg.slug];
+            const fl = flagForLeague(lg.slug);
             return (
               <RailButton
                 key={lg.slug}
@@ -114,22 +108,28 @@ export default function LeagueRail({
                 onClick={() => onSelect(lg.slug)}
                 label={lg.name}
                 count={count}
-                icon={<span className="font-mono text-[9px] text-zinc-500">{lg.code}</span>}
+                icon={
+                  <span
+                    className="text-[16px] leading-none w-5 flex items-center justify-center"
+                    aria-label={fl.country}
+                  >
+                    {fl.flag}
+                  </span>
+                }
               />
             );
           })}
         </ul>
       </div>
 
-      {/* Account Control */}
       {user && (
         <div className="p-3 border-t border-white/[0.06] mt-auto">
-          <div className="px-2 pb-2 flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] font-sans font-bold text-zinc-500">
-            <User className="w-3 h-3" />
-            Mi Cuenta
-          </div>
-          
-          <div className="flex flex-col gap-2 px-2 py-2 mb-2 rounded-md bg-white/[0.02] border border-white/[0.04]">
+          <SectionLabel icon={<User className="w-3 h-3" />}>Mi cuenta</SectionLabel>
+
+          <Link
+            href="/dashboard/profile"
+            className="flex flex-col gap-2 px-2 py-2 mb-2 rounded-md bg-white/[0.02] border border-white/[0.04] hover:bg-white/[0.04] transition-colors overflow-hidden"
+          >
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-full bg-white text-[#0a0a0c] flex items-center justify-center font-mono text-[12px] font-bold shrink-0">
                 {user.name.charAt(0).toUpperCase()}
@@ -151,7 +151,7 @@ export default function LeagueRail({
                 </span>
               </div>
             </div>
-            
+
             {bankroll && (
               <div className="mt-1 pt-2 border-t border-white/[0.06] flex items-center justify-between">
                 <div className="flex flex-col">
@@ -166,31 +166,78 @@ export default function LeagueRail({
                 )}
               </div>
             )}
-          </div>
-          
+          </Link>
+
           <ul className="flex flex-col gap-0.5">
-            <RailButton
-              active={false}
-              onClick={() => {}}
-              icon={<Wallet className="w-3.5 h-3.5 text-emerald-400" />}
-              label="Gestión de Bank"
+            <RailLink
+              href="/dashboard/profile"
+              icon={<User className="w-3.5 h-3.5 text-sky-400" />}
+              label="Mi perfil y rangos"
             />
-            <RailButton
-              active={false}
-              onClick={() => {}}
+            <RailLink
+              href="/dashboard/promos"
+              icon={<Tag className="w-3.5 h-3.5 text-violet-400" />}
+              label="Promos y ofertas"
+            />
+            <RailLink
+              href="/dashboard/bank"
+              icon={<Wallet className="w-3.5 h-3.5 text-emerald-400" />}
+              label="Gestión de bank"
+            />
+            <RailLink
+              href="/dashboard/profile?tab=settings"
               icon={<Settings className="w-3.5 h-3.5 text-zinc-400" />}
               label="Configuración"
             />
-            <RailButton
-              active={false}
-              onClick={logout}
-              icon={<LogOut className="w-3.5 h-3.5 text-red-400" />}
-              label="Cerrar sesión"
-            />
+            <li>
+              <button
+                type="button"
+                onClick={logout}
+                className="w-full flex items-center justify-between gap-2 px-2 h-[32px] rounded-md text-left transition-colors text-zinc-300 hover:bg-white/5 hover:text-white"
+              >
+                <span className="flex items-center gap-2 font-sans text-[12.5px] font-medium truncate">
+                  <LogOut className="w-3.5 h-3.5 text-red-400" />
+                  Cerrar sesión
+                </span>
+              </button>
+            </li>
           </ul>
         </div>
       )}
     </aside>
+  );
+}
+
+function SectionLabel({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="px-2 pb-2 flex items-center gap-2 text-[10px] uppercase tracking-[0.2em] font-sans font-bold text-zinc-500">
+      {icon}
+      {children}
+    </div>
+  );
+}
+
+function RailLink({
+  href,
+  icon,
+  label,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <li>
+      <Link
+        href={href}
+        className="w-full flex items-center justify-between gap-2 px-2 h-[32px] rounded-md text-left transition-colors text-zinc-300 hover:bg-white/5 hover:text-white"
+      >
+        <span className="flex items-center gap-2 font-sans text-[12.5px] font-medium truncate">
+          {icon}
+          <span className="truncate">{label}</span>
+        </span>
+      </Link>
+    </li>
   );
 }
 

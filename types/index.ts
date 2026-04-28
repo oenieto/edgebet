@@ -1,14 +1,11 @@
-export type PickResult = 'home' | 'draw' | 'away';
+export type PickResult = 'home' | 'draw' | 'away' | 'over_1_5' | 'under_1_5' | 'over_2_5' | 'under_2_5' | 'over_3_5' | 'under_3_5';
+export type PickMarket = 'ML' | 'OU';
 export type PickStatus = 'free' | 'premium' | 'vip';
 export type PickOutcome = 'pending' | 'win' | 'loss' | 'void';
 export type UserPlan = 'free' | 'pro' | 'vip';
 export type RiskProfile = 'conservative' | 'balanced' | 'aggressive';
 
-export interface ProbabilityTriplet {
-  home: number;
-  draw: number;
-  away: number;
-}
+export type ProbMap = Record<string, number>;
 
 export interface Pick {
   id: string;
@@ -17,12 +14,14 @@ export interface Pick {
   awayTeam: string;
   league: string;
   leagueSlug?: string | null;
+  market?: PickMarket;
   kickoff: string;
   prediction: PickResult;
   confidence: number;
-  mlProb: ProbabilityTriplet;
-  polyProb?: ProbabilityTriplet | null;
-  bkProb: ProbabilityTriplet;
+  mlProb: ProbMap;
+  polyProb?: ProbMap | null;
+  bkProb: ProbMap;
+  blendedProb?: ProbMap;
   aiReasoning: string;
   suggestedStake: number;
   status: PickStatus;

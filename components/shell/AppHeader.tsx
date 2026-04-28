@@ -1,11 +1,14 @@
 'use client';
 
-import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Bell, Crown, LogOut } from 'lucide-react';
+import { Crown } from 'lucide-react';
 
-import { useAuth } from '@/contexts/AuthContext';
+import Logo from '@/components/brand/Logo';
+import NotificationsPanel from '@/components/notifications/NotificationsPanel';
+import { useUserStore } from '@/lib/store/userStore';
+import { getProgressToNext } from '@/lib/ranking/tiers';
+import RankBadge from '@/components/profile/RankBadge';
 
 const NAV = [
   { label: 'Todos los análisis', href: '/dashboard', match: 'exact' as const },
@@ -21,22 +24,15 @@ const NAV = [
 
 export default function AppHeader() {
   const pathname = usePathname();
+  const profile = useUserStore((s) => s.profile);
+  const xp = profile?.xp ?? 0;
+  const { current: rank } = getProgressToNext(xp);
 
   return (
     <header className="sticky top-0 z-50 bg-[#0a0a0c]/95 backdrop-blur-md border-b border-white/[0.06]">
       <div className="max-w-[1600px] mx-auto px-4 md:px-6 lg:px-8">
         <div className="h-[64px] flex items-center justify-between gap-6">
-          <Link href="/dashboard" className="flex items-center gap-2.5 shrink-0 group">
-            <Image
-              src="/inverso.png"
-              alt="Edgebet"
-              width={160}
-              height={40}
-              priority
-              className="h-[36px] w-auto object-cover"
-              style={{ clipPath: 'inset(0px 0px 10px 0px)' }}
-            />
-          </Link>
+          <Logo variant="horizontal" theme="dark" height={48} priority />
 
           <nav className="hidden md:flex items-center gap-1 flex-1 justify-center">
             {NAV.map((item) => {
@@ -76,14 +72,12 @@ export default function AppHeader() {
             >
               Ofertas
             </Link>
-            <button
-              type="button"
-              className="hidden sm:flex w-[34px] h-[34px] rounded-md bg-white/5 border border-white/[0.08] items-center justify-center text-zinc-300 hover:text-white hover:bg-white/10 transition-colors"
-              aria-label="Notificaciones"
-            >
-              <Bell className="w-4 h-4" />
-            </button>
-
+            <NotificationsPanel />
+            {profile && (
+              <Link href="/dashboard/profile" className="ml-2 hidden sm:flex">
+                <RankBadge rank={rank} size="sm" />
+              </Link>
+            )}
           </div>
         </div>
 
