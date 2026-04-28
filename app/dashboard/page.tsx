@@ -26,7 +26,8 @@ import RankCard from '@/components/profile/RankCard';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUserStore } from '@/lib/store/userStore';
 import { getLeagues, getMetrics, getPicksToday } from '@/lib/api/picks';
-import type { LeagueInfo, Metrics, Pick } from '@/types';
+import type { LeagueInfo, Metrics, PickResult as EdgebetPick } from '@/types';
+import PickDetailModal from '@/components/picks/PickDetailModal';
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -377,7 +378,7 @@ function shouldLock(status: Pick['status'] | undefined, userTier: 'free' | 'pro'
   return status !== 'free';
 }
 
-function buildHighlights(picks: Pick[]) {
+function buildHighlights(picks: EdgebetEdgebetPick[]) {
   if (!picks.length) return null;
   const topEv = [...picks].sort((a, b) => (b.evPct ?? 0) - (a.evPct ?? 0))[0];
   const topConfidence = [...picks].sort((a, b) => b.confidence - a.confidence)[0];
@@ -637,10 +638,11 @@ function PicksTable({
   picks,
   userTier,
 }: {
-  picks: Pick[];
+  picks: EdgebetEdgebetPick[];
   userTier: 'free' | 'pro' | 'vip';
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [selectedPick, setSelectedPick] = useState<EdgebetPick | null>(null);
   const { suggestedStake, isOnboardingDone } = useUserStore();
   const stakeValue = suggestedStake();
 
@@ -653,7 +655,7 @@ function PicksTable({
       return (b.evPct ?? 0) - (a.evPct ?? 0);
     });
 
-    const groups: { dateLabel: string; picks: Pick[] }[] = [];
+    const groups: { dateLabel: string; picks: EdgebetEdgebetPick[] }[] = [];
     let currentLabel = '';
 
     for (const p of sorted) {
@@ -689,16 +691,14 @@ function PicksTable({
             <th className="px-3 py-2.5 font-medium hidden md:table-cell">Liga</th>
             <th className="px-3 py-2.5 font-medium text-right">Predicción</th>
             <th className="px-3 py-2.5 font-medium text-right hidden sm:table-cell">Confianza</th>
-            <th className="px-3 py-2.5 font-medium text-right hidden md:table-cell">Edge</th>
-            <th className="px-3 py-2.5 font-medium text-right">EV</th>
-            <th className="px-3 py-2.5 font-medium text-right hidden lg:table-cell">Stake</th>
             <th className="px-5 py-2.5 font-medium text-right">Cuota</th>
+            <th className="px-5 py-2.5 font-medium"></th>
           </tr>
         </thead>
         {groupedPicks.map((group) => (
           <tbody key={group.dateLabel}>
             <tr>
-              <td colSpan={8} className="px-5 py-2 bg-[#16161a] border-y border-white/[0.04]">
+              <td colSpan={6} className="px-5 py-2 bg-[#16161a] border-y border-white/[0.04]">
                 <div className="font-sans text-[11px] font-bold tracking-widest uppercase text-amber-500/80">
                   {group.dateLabel}
                 </div>
@@ -761,36 +761,6 @@ function PicksTable({
                     {p.confidence}%
                   </span>
                 </td>
-                <td className="px-3 py-3 text-right hidden md:table-cell">
-                  <span
-                    className={`font-mono text-[12.5px] font-bold ${
-                      (p.edgePp ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'
-                    }`}
-                  >
-                    {(p.edgePp ?? 0) >= 0 ? '+' : ''}
-                    {p.edgePp?.toFixed(1) ?? '—'}pp
-                  </span>
-                </td>
-                <td className="px-3 py-3 text-right">
-                  {locked ? (
-                    <span className="font-mono text-[12.5px] text-zinc-600 blur-sm select-none">+99.9%</span>
-                  ) : (
-                    <span className="font-mono text-[12.5px] font-bold text-amber-300">
-                      +{p.evPct?.toFixed(1) ?? '—'}%
-                    </span>
-                  )}
-                </td>
-                <td className="px-3 py-3 text-right hidden lg:table-cell">
-                  <div className="font-mono text-[12.5px] font-semibold text-white">
-                    {isOnboardingDone() || locked ? (
-                      stakeDisplay
-                    ) : (
-                      <Link href="/onboarding" className="text-[10px] text-amber-400 hover:underline flex items-center gap-1 justify-end">
-                        {stakeDisplay} <ArrowRight className="w-3 h-3" />
-                      </Link>
-                    )}
-                  </div>
-                </td>
                 <td className="px-5 py-3 text-right">
                   {locked ? (
                     <Link
@@ -806,10 +776,23 @@ function PicksTable({
                     </span>
                   )}
                 </td>
+                <td className="px-5 py-3 text-right">
+                  {!locked && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedPick(p);
+                      }}
+                      className="inline-flex items-center h-[30px] px-3 rounded-md bg-amber-400 text-[#0a0a0c] font-sans font-bold text-[11px] hover:bg-amber-300 transition-colors"
+                    >
+                      Ver Detalle
+                    </button>
+                  )}
+                </td>
               </tr>
               {isExpanded && !locked && (
                 <tr className="bg-black/20 border-t border-white/[0.02]">
-                  <td colSpan={8} className="px-5 py-4">
+                  <td colSpan={6} className="px-5 py-4">
                     <div className="flex items-start gap-3">
                       <Sparkles className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
                       <div className="font-sans text-[13px] text-zinc-300 leading-relaxed max-w-4xl">
@@ -826,6 +809,12 @@ function PicksTable({
           </tbody>
         ))}
       </table>
+      {selectedPick && (
+        <PickDetailModal 
+          pick={selectedPick as any} 
+          onClose={() => setSelectedPick(null)} 
+        />
+      )}
     </div>
   );
 }

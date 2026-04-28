@@ -29,6 +29,17 @@ export interface Pick {
   odds?: number | null;
   edgePp?: number | null;
   evPct?: number | null;
+  sourcesAgree?: boolean;
+  modelSource?: string;
+  bookmakerSource?: string;
+  marketVerified?: boolean;
+  polyMeta?: Record<string, any>;
+  allOutcomes?: Array<{ name: string; probability: number }>;
+  combos?: {
+    safe: string;
+    medium: string;
+    risky: string;
+  };
 }
 
 export interface LeagueInfo {

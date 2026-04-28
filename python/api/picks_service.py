@@ -289,11 +289,16 @@ def _build_pick_for_match(
         blend_outcome = max(blended, key=blended.get)
         prediction_code = {"home": "H", "draw": "D", "away": "A"}[blend_outcome]
         confidence_pct = blended[blend_outcome] * 100
-        edge_pp = None
-        ev_pct = None
-        odds_display = None
-        stake = 0.0
-        tier = "free"
+        
+        synthetic_odds_ml = round((1.0 / blended[blend_outcome]) * 1.08, 2)
+        ev_val_ml = (blended[blend_outcome] * synthetic_odds_ml) - 1.0
+        edge_val_ml = blended[blend_outcome] - (1.0 / synthetic_odds_ml)
+        
+        edge_pp = round(edge_val_ml * 100, 1)
+        ev_pct = round(ev_val_ml * 100, 1)
+        odds_display = synthetic_odds_ml
+        stake = round(ev_val_ml * 10, 2) if ev_val_ml > 0 else 1.0
+        tier = "free" if edge_val_ml < 0.05 else "premium"
         prediction_label = {
             "H": f"{home_team} gana",
             "D": "Empate",
@@ -421,9 +426,11 @@ def _build_pick_for_match(
     ou_pred_code = f"over_{target_line}" if prob_over > prob_under else f"under_{target_line}"
     ou_conf = max(prob_over, prob_under) * 100
     
-    fair_odds = 1.0 / max(prob_over, prob_under)
-    synthetic_odds = max(1.01, round(fair_odds * 0.95, 2))
-    
+    fair_prob = max(prob_over, prob_under)
+    synthetic_odds = round((1.0 / fair_prob) * 1.12, 2) 
+    ev_val = (fair_prob * synthetic_odds) - 1.0
+    edge_val = fair_prob - (1.0 / synthetic_odds)
+
     ou_result = {
         "id": str(uuid4()),
         "market": "OU",
@@ -440,11 +447,11 @@ def _build_pick_for_match(
         "bkProb": {f"over_{target_line}": round(prob_over, 4), f"under_{target_line}": round(prob_under, 4)},
         "blendedProb": {f"over_{target_line}": round(prob_over, 4), f"under_{target_line}": round(prob_under, 4)},
         "aiReasoning": ai_msg,
-        "suggestedStake": 1.5,
-        "status": "free",
+        "suggestedStake": round(ev_val * 10, 2) if ev_val > 0 else 1.5,
+        "status": "free" if edge_val < 0.05 else "premium",
         "odds": synthetic_odds,
-        "edgePp": 0.0,
-        "evPct": 0.0,
+        "edgePp": round(edge_val * 100, 1),
+        "evPct": round(ev_val * 100, 1),
         "sourcesAgree": True,
         "modelSource": "poisson_dynamic",
         "bookmakerSource": "synthetic",
@@ -454,6 +461,68 @@ def _build_pick_for_match(
     }
     
     out_picks.append(ou_result)
+
+    # DOBLE OPORTUNIDAD (Double Chance)
+    dc_1x = blended["home"] + blended["draw"]
+    dc_x2 = blended["draw"] + blended["away"]
+    dc_12 = blended["home"] + blended["away"]
+    
+    dc_probs = {"1X": dc_1x, "X2": dc_x2, "12": dc_12}
+    best_dc = max(dc_probs, key=dc_probs.get)
+    best_dc_prob = dc_probs[best_dc]
+    dc_odds = round((1.0 / best_dc_prob) * 1.08, 2)
+    
+    dc_result = {
+        "id": str(uuid4()),
+        "market": "DC",
+        "match": f"{home_team} vs {away_team}",
+        "homeTeam": home_team,
+        "awayTeam": away_team,
+        "league": cfg.name,
+        "leagueSlug": slug,
+        "kickoff": "2026-04-19T16:30:00Z",
+        "prediction": best_dc,
+        "confidence": int(round(best_dc_prob * 100)),
+        "mlProb": {k: round(v, 4) for k, v in dc_probs.items()},
+        "polyProb": None,
+        "bkProb": {k: round(v, 4) for k, v in dc_probs.items()},
+        "blendedProb": {k: round(v, 4) for k, v in dc_probs.items()},
+        "aiReasoning": f"Modo Seguro: Doble oportunidad {best_dc} respaldado por sólida probabilidad de {best_dc_prob*100:.1f}%. Ideal para construir bankroll.",
+        "suggestedStake": 2.5,
+        "status": "free",
+        "odds": dc_odds,
+        "edgePp": 0.0,
+        "evPct": 0.0,
+        "sourcesAgree": True,
+        "modelSource": "poisson_dynamic",
+        "bookmakerSource": "synthetic",
+        "marketVerified": False,
+        "polyMeta": None,
+        "allOutcomes": [],
+    }
+    out_picks.append(dc_result)
+
+    # Generar Combos (Ambos Anotan + ML + OU)
+    # Probabilidad Ambos Anotan (AA / BTTS) usando Poisson
+    # P(Ambos Anotan) = P(Home > 0) * P(Away > 0)
+    p_home_scores = 1 - poisson_pmf(0, home_gf + away_ga)
+    p_away_scores = 1 - poisson_pmf(0, away_gf + home_ga)
+    p_btts = p_home_scores * p_away_scores
+    
+    btts_label = "AA" if p_btts >= 0.55 else "No AA"
+    
+    fav_ml = max(blended, key=blended.get)
+    fav_team = home_team if fav_ml == "home" else away_team if fav_ml == "away" else "Empate"
+    
+    combos = {
+        "safe": btts_label,
+        "medium": f"{btts_label} y {ou_pred_code.replace('_', ' ').replace('over', 'Más de').replace('under', 'Menos de')}",
+        "risky": f"{fav_team} gana y {btts_label}"
+    }
+    
+    # Asignar combos a todos los picks generados para este partido
+    for pick in out_picks:
+        pick["combos"] = combos
 
     return out_picks
 

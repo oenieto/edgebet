@@ -65,17 +65,18 @@ class Pick(BaseModel):
     league: str
     leagueSlug: str | None = None
     kickoff: str
-    prediction: Literal["home", "draw", "away"]
+    prediction: str
     confidence: int
-    mlProb: ProbabilityTriplet
-    polyProb: ProbabilityTriplet | None = None
-    bkProb: ProbabilityTriplet
+    mlProb: dict[str, float]
+    polyProb: dict[str, float] | None = None
+    bkProb: dict[str, float]
     aiReasoning: str
     suggestedStake: float
-    status: Literal["free", "premium", "vip"]
+    status: str
     odds: float | None = None
     edgePp: float | None = None
     evPct: float | None = None
+    combos: dict[str, str] | None = None
 
 
 class HealthResponse(BaseModel):

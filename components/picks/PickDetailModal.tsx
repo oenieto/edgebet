@@ -2,6 +2,7 @@
 
 import { X, CheckCircle2 } from 'lucide-react';
 import type { Pick } from '@/types';
+import { useUserStore } from '@/lib/store/userStore';
 
 interface Props {
   pick: Pick;
@@ -9,6 +10,9 @@ interface Props {
 }
 
 export default function PickDetailModal({ pick, onClose }: Props) {
+  const { bankroll } = useUserStore();
+  const absoluteStake = (pick.suggestedStake / 100) * (Number(bankroll) || 0);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
       <div className="bg-surface border border-surface-container-low rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200">
@@ -43,16 +47,38 @@ export default function PickDetailModal({ pick, onClose }: Props) {
             </p>
           </div>
 
+            {pick.combos && (
+              <div className="bg-surface-container-lowest border border-surface-container-low rounded-xl p-5 mb-6">
+                <h3 className="font-sans font-bold text-[14px] text-on-surface mb-3 flex items-center gap-2">
+                  Construcción de Parlays
+                </h3>
+                <div className="space-y-3">
+                  <div className="flex flex-col">
+                    <span className="text-[11px] text-emerald-400 font-bold uppercase tracking-wider">Modo Seguro</span>
+                    <span className="text-[13px] text-on-surface">{pick.combos.safe}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[11px] text-amber-400 font-bold uppercase tracking-wider">Modo Intermedio</span>
+                    <span className="text-[13px] text-on-surface">{pick.combos.medium}</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[11px] text-rose-400 font-bold uppercase tracking-wider">Modo Arriesgado</span>
+                    <span className="text-[13px] text-on-surface">{pick.combos.risky}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
           <div className="grid grid-cols-2 gap-4">
             <div className="bg-surface-container-lowest border border-surface-container-low rounded-xl p-4">
               <div className="text-[11px] text-tertiary uppercase tracking-widest font-semibold mb-1">
                 Stake Sugerido
               </div>
               <div className="font-mono font-bold text-[20px] text-primary">
-                {pick.suggestedStake.toFixed(1)}%
+                ${absoluteStake.toFixed(2)}
               </div>
               <div className="text-[11px] text-tertiary mt-1">
-                Porcentaje de tu bankroll
+                {pick.suggestedStake.toFixed(1)}% de tu bankroll
               </div>
             </div>
             
