@@ -19,7 +19,7 @@ from api.auth import UserPublic, get_current_user, router as auth_router
 from api.user import router as user_router
 from api.stripe_webhooks import router as stripe_router
 from api.db import init_db
-from api.picks_service import get_leagues, get_todays_picks
+from api.picks_service import get_leagues, get_todays_picks, get_pick_stats
 from api.parlay_builder import build_all_tiers
 
 app = FastAPI(title="Edgebet API", version="0.1.0")
@@ -60,8 +60,11 @@ class ProbabilityTriplet(BaseModel):
 class Pick(BaseModel):
     id: str
     match: str
+    market: str | None = None
     homeTeam: str
     awayTeam: str
+    homeLogo: str | None = None
+    awayLogo: str | None = None
     league: str
     leagueSlug: str | None = None
     kickoff: str
@@ -106,6 +109,52 @@ def picks_today(league: str | None = None) -> list[Pick]:
     if real:
         return [Pick(**p) for p in real]
     return []
+
+
+@app.get("/picks/{pick_id}", response_model=Pick)
+def get_pick(pick_id: str) -> Pick:
+    picks = get_todays_picks()
+    for p in picks:
+        if p["id"] == pick_id:
+            return Pick(**p)
+    raise HTTPException(status_code=404, detail="Pick not found")
+
+
+class MatchStat(BaseModel):
+    date: str
+    home: str
+    away: str
+    homeLogo: str | None = None
+    awayLogo: str | None = None
+    score: str
+    result: str | None = None
+
+class TeamAggregates(BaseModel):
+    wins: int
+    draws: int
+    losses: int
+    goals_for: int
+    goals_against: int
+
+class TeamStats(BaseModel):
+    team: str
+    logo: str | None = None
+    form: str | None = None
+    elo: float | None = None
+    last_5: list[MatchStat]
+    aggregates: TeamAggregates | None = None
+
+class PickStatsResponse(BaseModel):
+    h2h: list[MatchStat]
+    home_stats: TeamStats
+    away_stats: TeamStats
+
+@app.get("/picks/{pick_id}/stats", response_model=PickStatsResponse)
+def get_pick_stats_endpoint(pick_id: str) -> PickStatsResponse:
+    stats = get_pick_stats(pick_id)
+    if not stats:
+        raise HTTPException(status_code=404, detail="Stats not found")
+    return PickStatsResponse(**stats)
 
 
 @app.get("/picks/exclusive", response_model=Pick)

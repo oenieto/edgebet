@@ -79,17 +79,19 @@ CL_FIXTURES: list[CLFixture] = [
 ]
 
 
-import requests
+import urllib.request
+import json
 import datetime
 
 def list_fixtures() -> list[CLFixture]:
     url = "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions/scoreboard"
     try:
-        response = requests.get(url, timeout=5)
-        if response.status_code != 200:
-            return CL_FIXTURES
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            if response.status != 200:
+                return CL_FIXTURES
+            data = json.loads(response.read())
             
-        data = response.json()
         events = data.get("events", [])
         fixtures = []
         
@@ -121,6 +123,14 @@ def list_fixtures() -> list[CLFixture]:
             if away_team == "Paris Saint-Germain": away_team = "Paris SG"
             if home_team == "Bayern Munich": home_team = "Bayern Munich"
             if away_team == "Bayern Munich": away_team = "Bayern Munich"
+            if home_team == "Atlético de Madrid": home_team = "Atletico Madrid"
+            if away_team == "Atlético de Madrid": away_team = "Atletico Madrid"
+            if home_team == "Real Madrid": home_team = "Real Madrid"
+            if away_team == "Real Madrid": away_team = "Real Madrid"
+            if home_team == "Manchester City": home_team = "Man City"
+            if away_team == "Manchester City": away_team = "Man City"
+            if home_team == "Arsenal": home_team = "Arsenal"
+            if away_team == "Arsenal": away_team = "Arsenal"
             
             status_text = evt.get("status", {}).get("type", {}).get("description", "Unknown")
             fixtures.append(CLFixture(home_team, away_team, date_fmt, time_fmt, status_text))

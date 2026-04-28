@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import Link from 'next/link';
 import { CheckCircle2, Lock, Target, ChevronRight } from 'lucide-react';
 import type { Pick } from '@/types';
-import PickDetailModal from './PickDetailModal';
+import TeamLogo from './TeamLogo';
 
 interface PickCardProps {
   pick: Pick;
@@ -44,7 +44,6 @@ function probPercent(value: number): string {
 }
 
 export default function PickCard({ pick, locked = false }: PickCardProps) {
-  const [showModal, setShowModal] = useState(false);
   const isLocked = locked && pick.status !== 'free';
   const mainProb = pick.mlProb[pick.prediction] ?? 0;
 
@@ -75,10 +74,20 @@ export default function PickCard({ pick, locked = false }: PickCardProps) {
         </span>
       </div>
 
-      <div className="flex items-center justify-between mb-5">
-        <div className="font-sans font-bold text-[18px] text-on-surface">{pick.homeTeam}</div>
-        <span className="text-tertiary font-mono text-[11px]">vs</span>
-        <div className="font-sans font-bold text-[18px] text-on-surface text-right">{pick.awayTeam}</div>
+      <div className="flex items-center justify-between gap-3 mb-5">
+        <div className="flex flex-col items-center gap-2 flex-1 min-w-0">
+          <TeamLogo src={pick.homeLogo} name={pick.homeTeam} size={40} />
+          <div className="font-sans font-bold text-[14px] text-on-surface text-center truncate w-full" title={pick.homeTeam}>
+            {pick.homeTeam}
+          </div>
+        </div>
+        <span className="text-tertiary font-mono text-[11px] shrink-0">vs</span>
+        <div className="flex flex-col items-center gap-2 flex-1 min-w-0">
+          <TeamLogo src={pick.awayLogo} name={pick.awayTeam} size={40} />
+          <div className="font-sans font-bold text-[14px] text-on-surface text-center truncate w-full" title={pick.awayTeam}>
+            {pick.awayTeam}
+          </div>
+        </div>
       </div>
 
       {isLocked ? (
@@ -118,18 +127,14 @@ export default function PickCard({ pick, locked = false }: PickCardProps) {
           </div>
 
           <div className="mt-auto pt-3 border-t border-surface-container-low">
-            <button
-              onClick={() => setShowModal(true)}
+            <Link
+              href={`/dashboard/pick/${pick.id}`}
               className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-surface-container hover:bg-surface-container-high transition-colors text-on-surface text-[13px] font-semibold"
             >
               Ver análisis y recomendación
               <ChevronRight className="w-4 h-4 text-tertiary" />
-            </button>
+            </Link>
           </div>
-          
-          {showModal && (
-            <PickDetailModal pick={pick} onClose={() => setShowModal(false)} />
-          )}
         </>
       )}
     </div>

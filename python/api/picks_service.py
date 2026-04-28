@@ -22,7 +22,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from uuid import uuid4
+import hashlib
+import uuid
 
 try:
     import redis
@@ -267,6 +268,8 @@ def _build_pick_for_match(
     )
 
     sources_agree = _sources_agree_flag(ml_probs, bk_probs, poly_probs_dict)
+    
+    is_big_match = (ratings.get(home_team, 1500.0) > 1800.0 or ratings.get(away_team, 1500.0) > 1800.0) or slug == "champions-league"
 
     # Sin línea real de mercado, el edge/EV contra odds sintéticas es ruido:
     # la capa ML (ensemble) diverge de la ELO-perturbada por diseño y fabrica
@@ -279,6 +282,8 @@ def _build_pick_for_match(
         odds_display = pick["bookmaker_odds"]
         stake = pick["suggested_stake_pct"]
         tier = _tier_for_edge(abs(edge_pp), ev_pct, sources_agree)
+        if tier == "free" and is_big_match:
+            tier = "premium"
         reasoning = pick["reasoning"]
         prediction_code = pick["prediction"]
         confidence_pct = pick["confidence_pct"]
@@ -286,7 +291,36 @@ def _build_pick_for_match(
         # Sin mercado real, elegir el favorito del ML (argmax del blend),
         # no el "best EV" contra odds sintéticas que puede ser el outcome
         # menos probable.
-        blend_outcome = max(blended, key=blended.get)
+        # Anti-draw bias: el ensemble entrenado en CSVs con stats granulares
+        # (shots/SoT/corners) recibe esos features como constantes de liga
+        # cuando la fuente live es openfootball — sin diferenciación, predice
+        # empate por defecto. Cuando los equipos están bien diferenciados por
+        # ELO/forma, el empate rara vez es la lectura correcta del mercado.
+        #
+        # Regla:
+        #   1) Si home y away están muy parejos (gap <4pp) Y el draw es claro
+        #      ganador (>5pp sobre cada uno), aceptamos el empate.
+        #   2) En cualquier otro caso, elegimos entre home/away por forma+ELO,
+        #      ignorando la masa de probabilidad asignada al empate.
+        h_p, d_p, a_p = blended["home"], blended["draw"], blended["away"]
+        elo_gap = ratings.get(home_team, 1500.0) - ratings.get(away_team, 1500.0)
+        form_gap = float(home_form.get("Form", 1.3)) - float(away_form.get("Form", 1.2))
+        teams_balanced = abs(h_p - a_p) < 0.04 and abs(elo_gap) < 80
+        draw_clearly_best = d_p > h_p + 0.05 and d_p > a_p + 0.05
+
+        if teams_balanced and draw_clearly_best:
+            blend_outcome = "draw"
+        else:
+            # Reasignar la masa de empate proporcionalmente a home/away,
+            # luego elegir el favorito. Mezcla con form+ELO para romper empates.
+            redistributed_home = h_p + d_p * (h_p / max(h_p + a_p, 0.01))
+            redistributed_away = a_p + d_p * (a_p / max(h_p + a_p, 0.01))
+            tilt = 0.02 * (1 if elo_gap + form_gap * 50 > 0 else -1)
+            if redistributed_home + tilt >= redistributed_away:
+                blend_outcome = "home"
+            else:
+                blend_outcome = "away"
+
         prediction_code = {"home": "H", "draw": "D", "away": "A"}[blend_outcome]
         confidence_pct = blended[blend_outcome] * 100
         
@@ -298,7 +332,12 @@ def _build_pick_for_match(
         ev_pct = round(ev_val_ml * 100, 1)
         odds_display = synthetic_odds_ml
         stake = round(ev_val_ml * 10, 2) if ev_val_ml > 0 else 1.0
-        tier = "free" if edge_val_ml < 0.05 else "premium"
+        
+        if edge_val_ml > 0.08:
+            tier = "vip"
+        else:
+            tier = "premium" if is_big_match else "free"
+            
         prediction_label = {
             "H": f"{home_team} gana",
             "D": "Empate",
@@ -311,11 +350,14 @@ def _build_pick_for_match(
             "no recomendación de apuesta."
         )
 
+    from api.team_logos import logo_url
     result = {
-        "id": str(uuid4()),
+        "id": str(uuid.UUID(hashlib.md5(f"{home_team}-{away_team}-ML".encode()).hexdigest())),
         "match": f"{home_team} vs {away_team}",
         "homeTeam": home_team,
         "awayTeam": away_team,
+        "homeLogo": logo_url(home_team),
+        "awayLogo": logo_url(away_team),
         "league": cfg.name,
         "leagueSlug": slug,
         "kickoff": "2026-04-19T16:30:00Z",
@@ -432,11 +474,13 @@ def _build_pick_for_match(
     edge_val = fair_prob - (1.0 / synthetic_odds)
 
     ou_result = {
-        "id": str(uuid4()),
+        "id": str(uuid.UUID(hashlib.md5(f"{home_team}-{away_team}-OU".encode()).hexdigest())),
         "market": "OU",
         "match": f"{home_team} vs {away_team}",
         "homeTeam": home_team,
         "awayTeam": away_team,
+        "homeLogo": logo_url(home_team),
+        "awayLogo": logo_url(away_team),
         "league": cfg.name,
         "leagueSlug": slug,
         "kickoff": "2026-04-19T16:30:00Z",
@@ -448,7 +492,7 @@ def _build_pick_for_match(
         "blendedProb": {f"over_{target_line}": round(prob_over, 4), f"under_{target_line}": round(prob_under, 4)},
         "aiReasoning": ai_msg,
         "suggestedStake": round(ev_val * 10, 2) if ev_val > 0 else 1.5,
-        "status": "free" if edge_val < 0.05 else "premium",
+        "status": "vip" if edge_val > 0.08 else ("premium" if is_big_match else "free"),
         "odds": synthetic_odds,
         "edgePp": round(edge_val * 100, 1),
         "evPct": round(ev_val * 100, 1),
@@ -473,11 +517,13 @@ def _build_pick_for_match(
     dc_odds = round((1.0 / best_dc_prob) * 1.08, 2)
     
     dc_result = {
-        "id": str(uuid4()),
+        "id": str(uuid.UUID(hashlib.md5(f"{home_team}-{away_team}-DC".encode()).hexdigest())),
         "market": "DC",
         "match": f"{home_team} vs {away_team}",
         "homeTeam": home_team,
         "awayTeam": away_team,
+        "homeLogo": logo_url(home_team),
+        "awayLogo": logo_url(away_team),
         "league": cfg.name,
         "leagueSlug": slug,
         "kickoff": "2026-04-19T16:30:00Z",
@@ -489,7 +535,7 @@ def _build_pick_for_match(
         "blendedProb": {k: round(v, 4) for k, v in dc_probs.items()},
         "aiReasoning": f"Modo Seguro: Doble oportunidad {best_dc} respaldado por sólida probabilidad de {best_dc_prob*100:.1f}%. Ideal para construir bankroll.",
         "suggestedStake": 2.5,
-        "status": "free",
+        "status": "premium" if is_big_match else "free",
         "odds": dc_odds,
         "edgePp": 0.0,
         "evPct": 0.0,
@@ -619,7 +665,27 @@ def _compute_picks(league_slug: str | None = None) -> list[dict]:
         return (verified, ev, conf)
 
     picks.sort(key=_sort_key, reverse=True)
-    return picks
+
+    # Agrupar por partido y emitir TODOS los mercados disponibles.
+    # Se ordenan: ML primero (resultado), luego OU (goles), luego DC (doble oportunidad).
+    # Cada pick lleva un campo "market" para que el frontend lo filtre si quiere.
+    MARKET_ORDER = {"ML": 0, "OU": 1, "DC": 2}
+    by_match: dict[str, list[dict]] = {}
+    for p in picks:
+        key = p["match"]
+        by_match.setdefault(key, []).append(p)
+
+    chosen: list[dict] = []
+    for match, options in by_match.items():
+        # Ordenar mercados dentro del partido
+        options_sorted = sorted(options, key=lambda o: MARKET_ORDER.get(o.get("market", ""), 99))
+        chosen.extend(options_sorted)
+
+    chosen.sort(key=lambda p: (
+        p.get("kickoff", ""),
+        MARKET_ORDER.get(p.get("market", ""), 99),
+    ))
+    return chosen
 
 
 def get_leagues() -> list[dict]:
@@ -627,3 +693,128 @@ def get_leagues() -> list[dict]:
         {"slug": cfg.slug, "name": cfg.name, "code": cfg.fd_code}
         for cfg in LEAGUES.values()
     ]
+
+
+def get_pick_stats(pick_id: str) -> dict | None:
+    from api.team_logos import logo_url
+
+    picks = get_todays_picks()
+    pick = next((p for p in picks if p["id"] == pick_id), None)
+    if not pick:
+        return None
+
+    slug = pick.get("leagueSlug")
+    home = pick.get("homeTeam")
+    away = pick.get("awayTeam")
+    if not slug or not home or not away:
+        return None
+
+    try:
+        matches, ratings, cfg = _load_league(slug)
+    except Exception:
+        return None
+
+    # Para CL: cruzar también con los datasets domésticos para el H2H,
+    # ya que el contexto unificado ya incluye las 5 grandes ligas.
+    def _format_match(m, target_team: str | None = None):
+        fthg = m.get("FTHG")
+        ftag = m.get("FTAG")
+        score = f"{fthg}-{ftag}" if fthg is not None and ftag is not None else "vs"
+        match_home = m.get("HomeTeam", "")
+        match_away = m.get("AwayTeam", "")
+
+        # Resultado relativo a target_team (W/L/D)
+        result = None
+        if target_team and fthg is not None and ftag is not None:
+            is_home = match_home == target_team
+            if fthg == ftag:
+                result = "D"
+            elif (fthg > ftag and is_home) or (ftag > fthg and not is_home):
+                result = "W"
+            else:
+                result = "L"
+
+        return {
+            "date": m.get("Date", ""),
+            "home": match_home,
+            "away": match_away,
+            "homeLogo": logo_url(match_home),
+            "awayLogo": logo_url(match_away),
+            "score": score,
+            "result": result,
+        }
+
+    h2h = [
+        m for m in matches
+        if (m.get("HomeTeam") == home and m.get("AwayTeam") == away)
+        or (m.get("HomeTeam") == away and m.get("AwayTeam") == home)
+    ]
+    # Solo partidos jugados (con score), ordenados del más reciente al más antiguo
+    h2h = [m for m in h2h if m.get("FTHG") is not None]
+    h2h.sort(key=lambda m: m.get("DateObj"), reverse=True)
+
+    def _team_last_played(team: str, n: int = 5) -> list[dict]:
+        team_matches = [
+            m for m in matches
+            if (m.get("HomeTeam") == team or m.get("AwayTeam") == team)
+            and m.get("FTHG") is not None
+        ]
+        team_matches.sort(key=lambda m: m.get("DateObj"), reverse=True)
+        return [_format_match(m, target_team=team) for m in team_matches[:n]]
+
+    # Form W/D/L compacta (string tipo "WWDLW") — útil para badges en UI
+    def _form_string(team_last: list[dict]) -> str:
+        # Mostrarlo cronológico (antiguo→nuevo) para leerse natural
+        return "".join(item["result"] or "?" for item in reversed(team_last))
+
+    # Métricas agregadas por equipo en sus últimos N
+    def _aggregate(team_last: list[dict], team: str) -> dict:
+        wins = draws = losses = 0
+        gf = ga = 0
+        for item in team_last:
+            r = item["result"]
+            if r == "W":
+                wins += 1
+            elif r == "D":
+                draws += 1
+            elif r == "L":
+                losses += 1
+            try:
+                h, a = item["score"].split("-")
+                h, a = int(h), int(a)
+                if item["home"] == team:
+                    gf += h; ga += a
+                else:
+                    gf += a; ga += h
+            except (ValueError, AttributeError):
+                pass
+        return {
+            "wins": wins,
+            "draws": draws,
+            "losses": losses,
+            "goals_for": gf,
+            "goals_against": ga,
+        }
+
+    home_last_5 = _team_last_played(home, 5)
+    away_last_5 = _team_last_played(away, 5)
+
+    return {
+        "h2h": [_format_match(m, target_team=home) for m in h2h[:5]],
+        "home_stats": {
+            "team": home,
+            "logo": logo_url(home),
+            "form": _form_string(home_last_5),
+            "elo": round(ratings.get(home, 1500.0), 1),
+            "last_5": home_last_5,
+            "aggregates": _aggregate(home_last_5, home),
+        },
+        "away_stats": {
+            "team": away,
+            "logo": logo_url(away),
+            "form": _form_string(away_last_5),
+            "elo": round(ratings.get(away, 1500.0), 1),
+            "last_5": away_last_5,
+            "aggregates": _aggregate(away_last_5, away),
+        },
+    }

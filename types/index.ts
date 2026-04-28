@@ -1,5 +1,5 @@
-export type PickResult = 'home' | 'draw' | 'away' | 'over_1_5' | 'under_1_5' | 'over_2_5' | 'under_2_5' | 'over_3_5' | 'under_3_5';
-export type PickMarket = 'ML' | 'OU';
+export type PickResult = 'home' | 'draw' | 'away' | 'over_1_5' | 'under_1_5' | 'over_2_5' | 'under_2_5' | 'over_3_5' | 'under_3_5' | '1X' | 'X2' | '12';
+export type PickMarket = 'ML' | 'OU' | 'DC';
 export type PickStatus = 'free' | 'premium' | 'vip';
 export type PickOutcome = 'pending' | 'win' | 'loss' | 'void';
 export type UserPlan = 'free' | 'pro' | 'vip';
@@ -12,6 +12,8 @@ export interface Pick {
   match: string;
   homeTeam: string;
   awayTeam: string;
+  homeLogo?: string | null;
+  awayLogo?: string | null;
   league: string;
   leagueSlug?: string | null;
   market?: PickMarket;
@@ -70,3 +72,37 @@ export interface BankrollSnapshot {
   pnl: number;
   picksCount: number;
 }
+
+export interface MatchStat {
+  date: string;
+  home: string;
+  away: string;
+  homeLogo?: string | null;
+  awayLogo?: string | null;
+  score: string;
+  result?: 'W' | 'D' | 'L' | null;
+}
+
+export interface TeamAggregates {
+  wins: number;
+  draws: number;
+  losses: number;
+  goals_for: number;
+  goals_against: number;
+}
+
+export interface TeamStats {
+  team: string;
+  logo?: string | null;
+  form?: string;
+  elo?: number;
+  last_5: MatchStat[];
+  aggregates?: TeamAggregates;
+}
+
+export interface PickStatsResponse {
+  h2h: MatchStat[];
+  home_stats: TeamStats;
+  away_stats: TeamStats;
+}
+

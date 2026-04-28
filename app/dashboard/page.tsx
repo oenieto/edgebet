@@ -23,11 +23,12 @@ import LeagueRail from '@/components/shell/LeagueRail';
 import BankrollTracker from '@/components/bankroll/BankrollTracker';
 import SmartAlerts from '@/components/bankroll/SmartAlerts';
 import RankCard from '@/components/profile/RankCard';
+import TeamLogo from '@/components/picks/TeamLogo';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUserStore } from '@/lib/store/userStore';
 import { getLeagues, getMetrics, getPicksToday } from '@/lib/api/picks';
-import type { LeagueInfo, Metrics, PickResult as EdgebetPick } from '@/types';
-import PickDetailModal from '@/components/picks/PickDetailModal';
+import type { LeagueInfo, Metrics, Pick as EdgebetPick } from '@/types';
+import { useRouter } from 'next/navigation';
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -39,6 +40,7 @@ export default function DashboardPage() {
   const [query, setQuery] = useState('');
   const [pickFilter, setPickFilter] = useState<'all' | 'high_ev' | 'divergence' | 'vip' | 'premium'>('all');
   const [selectedWeek, setSelectedWeek] = useState<'this_week' | 'next_week'>('this_week');
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   const { thisWeekEnd, nextWeekStart, nextWeekEnd } = useMemo(() => {
     const today = new Date();
@@ -81,6 +83,20 @@ export default function DashboardPage() {
     return res;
   }, [picks]);
 
+  const weekDays = useMemo(() => {
+    const days = [];
+    const today = new Date();
+    const dayOfWeek = today.getDay() === 0 ? 7 : today.getDay();
+    for (let i = 0; i <= 7 - dayOfWeek; i++) {
+      const d = new Date();
+      d.setDate(today.getDate() + i);
+      const isoDate = d.toISOString().split('T')[0];
+      const label = i === 0 ? 'Hoy' : d.toLocaleString('es-ES', { weekday: 'long' });
+      days.push({ date: isoDate, label: label.charAt(0).toUpperCase() + label.slice(1) });
+    }
+    return days;
+  }, []);
+
   const filteredPicks = useMemo(() => {
     if (!picks) return [];
     let out = picks;
@@ -90,6 +106,9 @@ export default function DashboardPage() {
         const d = new Date(p.kickoff);
         return d <= thisWeekEnd;
       });
+      if (selectedDay) {
+        out = out.filter((p) => p.kickoff.startsWith(selectedDay));
+      }
     } else if (selectedWeek === 'next_week') {
       out = out.filter(p => {
         const d = new Date(p.kickoff);
@@ -112,7 +131,7 @@ export default function DashboardPage() {
       );
     }
     return out;
-  }, [picks, selectedLeague, pickFilter, query, selectedWeek, thisWeekEnd, nextWeekStart, nextWeekEnd]);
+  }, [picks, selectedLeague, pickFilter, query, selectedWeek, thisWeekEnd, nextWeekStart, nextWeekEnd, selectedDay]);
 
   const topPick = useMemo(() => {
     if (!picks || picks.length === 0) return null;
@@ -228,14 +247,6 @@ export default function DashboardPage() {
             />
           </div>
 
-          {/* Metrics row */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-            <div className="md:col-span-2 lg:col-span-4">
-              <BankrollTracker />
-            </div>
-          </div>
-          <MetricsRow metrics={metrics ?? null} picksCount={picks?.length} tierCounts={tierCounts} />
-
           {/* Featured */}
           {highlights && !loading && !error && (
             <div>
@@ -317,27 +328,63 @@ export default function DashboardPage() {
             </div>
 
             <div className="border-b border-white/[0.06] bg-black/20">
-              <div className="flex gap-2 px-5 py-3">
-                <button
-                  onClick={() => setSelectedWeek('this_week')}
-                  className={`px-4 py-2 rounded-lg font-sans text-[12px] font-semibold transition-colors ${
-                    selectedWeek === 'this_week'
-                      ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400'
-                      : 'bg-white/[0.03] border border-white/[0.04] text-zinc-400 hover:text-white hover:border-white/[0.1]'
-                  }`}
-                >
-                  Esta semana
-                </button>
-                <button
-                  onClick={() => setSelectedWeek('next_week')}
-                  className={`px-4 py-2 rounded-lg font-sans text-[12px] font-semibold transition-colors ${
-                    selectedWeek === 'next_week'
-                      ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400'
-                      : 'bg-white/[0.03] border border-white/[0.04] text-zinc-400 hover:text-white hover:border-white/[0.1]'
-                  }`}
-                >
-                  Próxima semana
-                </button>
+              <div className="flex flex-col xl:flex-row items-start xl:items-center gap-4 p-5">
+                <div className="flex items-center gap-2 overflow-x-auto hide-scrollbar w-full xl:w-auto">
+                  <button
+                    onClick={() => {
+                      setSelectedWeek('this_week');
+                      setSelectedDay(null);
+                    }}
+                    className={`whitespace-nowrap px-4 py-2 rounded-full font-sans text-sm font-semibold transition-colors ${
+                      selectedWeek === 'this_week'
+                        ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                        : 'text-zinc-400 hover:text-white border border-transparent'
+                    }`}
+                  >
+                    Esta semana
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedWeek('next_week');
+                      setSelectedDay(null);
+                    }}
+                    className={`whitespace-nowrap px-4 py-2 rounded-full font-sans text-sm font-semibold transition-colors ${
+                      selectedWeek === 'next_week'
+                        ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                        : 'text-zinc-400 hover:text-white border border-transparent'
+                    }`}
+                  >
+                    Próxima semana
+                  </button>
+                </div>
+
+                {selectedWeek === 'this_week' && (
+                  <div className="flex items-center gap-2 overflow-x-auto hide-scrollbar w-full xl:w-auto xl:border-l xl:border-white/[0.06] xl:pl-4">
+                    <button
+                      onClick={() => setSelectedDay(null)}
+                      className={`whitespace-nowrap px-3 py-1.5 rounded-full font-sans text-[13px] font-semibold transition-colors ${
+                        selectedDay === null
+                          ? 'bg-zinc-800 text-white border border-zinc-700'
+                          : 'text-zinc-500 hover:text-zinc-300 border border-transparent'
+                      }`}
+                    >
+                      Todos
+                    </button>
+                    {weekDays.map(day => (
+                      <button
+                        key={day.date}
+                        onClick={() => setSelectedDay(day.date)}
+                        className={`whitespace-nowrap px-3 py-1.5 rounded-full font-sans text-[13px] font-semibold transition-colors ${
+                          selectedDay === day.date
+                            ? 'bg-zinc-800 text-white border border-zinc-700'
+                            : 'text-zinc-500 hover:text-zinc-300 border border-transparent'
+                        }`}
+                      >
+                        {day.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -371,14 +418,14 @@ export default function DashboardPage() {
   );
 }
 
-function shouldLock(status: Pick['status'] | undefined, userTier: 'free' | 'pro' | 'vip'): boolean {
+function shouldLock(status: EdgebetPick['status'] | undefined, userTier: 'free' | 'pro' | 'vip'): boolean {
   if (!status) return false;
   if (userTier === 'vip') return false;
   if (userTier === 'pro') return status === 'vip';
   return status !== 'free';
 }
 
-function buildHighlights(picks: EdgebetEdgebetPick[]) {
+function buildHighlights(picks: EdgebetPick[]) {
   if (!picks.length) return null;
   const topEv = [...picks].sort((a, b) => (b.evPct ?? 0) - (a.evPct ?? 0))[0];
   const topConfidence = [...picks].sort((a, b) => b.confidence - a.confidence)[0];
@@ -587,11 +634,11 @@ function HighlightCard({
   label: string;
   value: string;
   sub: string;
-  tier?: Pick['status'];
+  tier?: EdgebetPick['status'];
   locked?: boolean;
   valueTone?: 'white' | 'emerald';
 }) {
-  const accentMap: Record<NonNullable<Pick['status']>, string> = {
+  const accentMap: Record<NonNullable<EdgebetPick['status']>, string> = {
     vip: 'text-amber-300',
     premium: 'text-zinc-300',
     free: 'text-zinc-500',
@@ -638,11 +685,11 @@ function PicksTable({
   picks,
   userTier,
 }: {
-  picks: EdgebetEdgebetPick[];
+  picks: EdgebetPick[];
   userTier: 'free' | 'pro' | 'vip';
 }) {
+  const router = useRouter();
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [selectedPick, setSelectedPick] = useState<EdgebetPick | null>(null);
   const { suggestedStake, isOnboardingDone } = useUserStore();
   const stakeValue = suggestedStake();
 
@@ -655,7 +702,7 @@ function PicksTable({
       return (b.evPct ?? 0) - (a.evPct ?? 0);
     });
 
-    const groups: { dateLabel: string; picks: EdgebetEdgebetPick[] }[] = [];
+    const groups: { dateLabel: string; picks: EdgebetPick[] }[] = [];
     let currentLabel = '';
 
     for (const p of sorted) {
@@ -710,12 +757,35 @@ function PicksTable({
               const dateObj = new Date(p.kickoff);
               const timeStr = isNaN(dateObj.getTime()) ? '' : dateObj.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
               
-              const predLabel =
-              p.prediction === 'home'
-                ? `${p.homeTeam} gana`
-                : p.prediction === 'away'
-                  ? `${p.awayTeam} gana`
-                  : 'Empate';
+              const predLabel = (() => {
+                const pred = p.prediction;
+                if (pred === 'home') return `${p.homeTeam} gana`;
+                if (pred === 'away') return `${p.awayTeam} gana`;
+                if (pred === 'draw') return 'Empate';
+                if (pred === '1X') return `${p.homeTeam} o Empate`;
+                if (pred === 'X2') return `${p.awayTeam} o Empate`;
+                if (pred === '12') return `${p.homeTeam} o ${p.awayTeam}`;
+                if (pred === 'over_1_5') return 'Más de 1.5 goles';
+                if (pred === 'under_1_5') return 'Menos de 1.5 goles';
+                if (pred === 'over_2_5') return 'Más de 2.5 goles';
+                if (pred === 'under_2_5') return 'Menos de 2.5 goles';
+                if (pred === 'over_3_5') return 'Más de 3.5 goles';
+                if (pred === 'under_3_5') return 'Menos de 3.5 goles';
+                return pred;
+              })();
+
+              const marketLabel = (() => {
+                const m = p.market;
+                if (m === 'OU') return 'Goles';
+                if (m === 'DC') return '2da Oport.';
+                return 'Resultado';
+              })();
+              const marketColor = (() => {
+                const m = p.market;
+                if (m === 'OU') return 'text-blue-400 border-blue-400/30 bg-blue-400/10';
+                if (m === 'DC') return 'text-purple-400 border-purple-400/30 bg-purple-400/10';
+                return 'text-zinc-500 border-white/[0.08] bg-white/[0.04]';
+              })();
 
               let stakeDisplay = '—';
               if (!locked) {
@@ -733,17 +803,36 @@ function PicksTable({
                 className={`border-t border-white/[0.04] transition-colors ${!locked ? 'cursor-pointer hover:bg-white/[0.02]' : ''}`}
               >
                 <td className="px-5 py-3">
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-3">
                     <TierDot status={p.status} />
-                    <div>
-                      <div className="font-sans font-semibold text-[13px] text-white">
-                        {locked ? '••• vs •••' : `${p.homeTeam} vs ${p.awayTeam}`}
+                    {locked ? (
+                      <div>
+                        <div className="font-sans font-semibold text-[13px] text-zinc-500">••• vs •••</div>
+                        <div className="font-sans text-[11px] text-zinc-600">{timeStr}</div>
                       </div>
-                      <div className="font-sans text-[11px] text-zinc-500 flex items-center gap-1.5">
-                        <span className="font-mono text-amber-500/80">{timeStr}</span>
-                        <span className="md:hidden">· {p.league}</span>
+                    ) : (
+                      <div className="flex items-center gap-3">
+                        {/* Home */}
+                        <div className="flex flex-col items-center gap-1 min-w-[52px]">
+                          <TeamLogo src={p.homeLogo} name={p.homeTeam} size={28} />
+                          <span className="font-sans text-[10px] text-zinc-300 leading-tight text-center max-w-[56px] truncate" title={p.homeTeam}>
+                            {p.homeTeam}
+                          </span>
+                        </div>
+                        {/* Score / time */}
+                        <div className="flex flex-col items-center">
+                          <span className="font-mono text-[11px] text-zinc-500">{timeStr}</span>
+                          <span className="font-mono text-[13px] font-bold text-zinc-400">vs</span>
+                        </div>
+                        {/* Away */}
+                        <div className="flex flex-col items-center gap-1 min-w-[52px]">
+                          <TeamLogo src={p.awayLogo} name={p.awayTeam} size={28} />
+                          <span className="font-sans text-[10px] text-zinc-300 leading-tight text-center max-w-[56px] truncate" title={p.awayTeam}>
+                            {p.awayTeam}
+                          </span>
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </td>
                 <td className="px-3 py-3 hidden md:table-cell">
@@ -753,7 +842,12 @@ function PicksTable({
                   {locked ? (
                     <span className="font-mono text-[11px] text-zinc-600">●●●</span>
                   ) : (
-                    <span className="font-sans text-[12.5px] text-white font-medium">{predLabel}</span>
+                    <div className="flex flex-col items-end gap-1">
+                      <span className={`inline-flex items-center h-[18px] px-1.5 rounded border font-mono font-bold text-[9px] tracking-wide ${marketColor}`}>
+                        {marketLabel}
+                      </span>
+                      <span className="font-sans text-[12.5px] text-white font-medium text-right">{predLabel}</span>
+                    </div>
                   )}
                 </td>
                 <td className="px-3 py-3 text-right hidden sm:table-cell">
@@ -781,7 +875,7 @@ function PicksTable({
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        setSelectedPick(p);
+                        router.push(`/dashboard/pick/${p.id}`);
                       }}
                       className="inline-flex items-center h-[30px] px-3 rounded-md bg-amber-400 text-[#0a0a0c] font-sans font-bold text-[11px] hover:bg-amber-300 transition-colors"
                     >
@@ -809,17 +903,11 @@ function PicksTable({
           </tbody>
         ))}
       </table>
-      {selectedPick && (
-        <PickDetailModal 
-          pick={selectedPick as any} 
-          onClose={() => setSelectedPick(null)} 
-        />
-      )}
     </div>
   );
 }
 
-function TierDot({ status }: { status: Pick['status'] }) {
+function TierDot({ status }: { status: EdgebetPick['status'] }) {
   const cls =
     status === 'vip'
       ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]'

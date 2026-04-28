@@ -17,3 +17,12 @@ export function getLeagues(): Promise<LeagueInfo[]> {
 export function getExclusivePick(): Promise<Pick> {
   return apiFetch<Pick>('/picks/exclusive');
 }
+
+export function getPick(id: string): Promise<Pick> {
+  return apiFetch<Pick>(`/picks/${id}`);
+}
+
+export function getPickStats(id: string): Promise<import('@/types').PickStatsResponse> {
+  return apiFetch<import('@/types').PickStatsResponse>(`/picks/${id}/stats`);
+}
+

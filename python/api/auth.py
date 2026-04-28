@@ -40,6 +40,11 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class UserUpdate(BaseModel):
+    name: str
+    email: EmailStr
+
+
 class UserPublic(BaseModel):
     id: int
     email: str
@@ -154,3 +159,22 @@ def login(body: LoginRequest) -> AuthResponse:
 @router.get("/me", response_model=UserPublic)
 def me(user: Annotated[UserPublic, Depends(get_current_user)]) -> UserPublic:
     return user
+
+
+@router.put("/me", response_model=UserPublic)
+def update_me(body: UserUpdate, user: Annotated[UserPublic, Depends(get_current_user)]) -> UserPublic:
+    email_norm = body.email.lower()
+    try:
+        with connect() as cur:
+            cur.execute(
+                "UPDATE users SET name = %s, email = %s WHERE id = %s RETURNING *",
+                (body.name.strip(), email_norm, user.id)
+            )
+            row = cur.fetchone()
+    except psycopg2.IntegrityError:
+        raise HTTPException(status_code=409, detail="Email already registered")
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    return _row_to_user(row)

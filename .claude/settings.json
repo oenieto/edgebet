@@ -64,7 +64,18 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\nbackend /docs: \" http://localhost:3000/dashboard/profile)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8000/docs)",
       "Bash(date -v +1d \"+%Y-%m-%d\")",
-      "Bash(date -v +2d \"+%Y-%m-%d\")"
+      "Bash(date -v +2d \"+%Y-%m-%d\")",
+      "Bash(bunx tsc *)",
+      "Bash(python3 -c \"import ast; [ast.parse\\(open\\(f\\).read\\(\\)\\) for f in ['api/picks_service.py','api/main.py','api/team_logos.py','api/openfootball_loader.py']]\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('count', len\\(d\\)\\); [print\\(p['homeTeam'],'vs',p['awayTeam'],'->',p['prediction'],'conf',p['confidence'],'logos:',bool\\(p.get\\('homeLogo'\\)\\),bool\\(p.get\\('awayLogo'\\)\\)\\) for p in d[:8]]\")",
+      "Bash(curl -s -X DELETE http://localhost:8000/cache)",
+      "Bash(curl -s \"http://localhost:8000/picks/today\")",
+      "Bash(redis-cli -u redis://localhost:6379/0 DEL \"picks:__all__\")",
+      "Bash(redis-cli -u redis://localhost:6379/0 KEYS \"*\")",
+      "Bash(redis-cli -u redis://localhost:6379/0 PING)",
+      "Bash(python3 -m json.tool)",
+      "Bash(tee /tmp/pick.txt)",
+      "Bash(curl -s \"http://localhost:8000/picks/ac3caef0-f9a7-0766-66f1-6ea9dc254911/stats\")"
     ],
     "additionalDirectories": [
       "/Users/oenieto/Documents/Edgebet/python/python/models"

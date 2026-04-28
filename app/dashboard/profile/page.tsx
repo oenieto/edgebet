@@ -26,7 +26,7 @@ const TABS: { id: Section; label: string }[] = [
 ];
 
 export default function ProfilePage() {
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
   const visuals = useProfileVisuals();
@@ -137,7 +137,7 @@ export default function ProfilePage() {
           />
         </div>
       )}
-      {tab === 'settings' && <SettingsSection user={user} onLogout={onLogout} />}
+      {tab === 'settings' && <SettingsSection user={user} onLogout={onLogout} onUpdate={updateUser} />}
     </div>
   );
 }
@@ -228,17 +228,28 @@ function OverviewSection({
 function SettingsSection({
   user,
   onLogout,
+  onUpdate,
 }: {
   user: { name: string; email: string };
   onLogout: () => void;
+  onUpdate: (name: string, email: string) => Promise<any>;
 }) {
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const onSave = () => {
-    setSavedAt(Date.now());
-    setTimeout(() => setSavedAt(null), 3000);
+  const onSave = async () => {
+    setLoading(true);
+    try {
+      await onUpdate(name, email);
+      setSavedAt(Date.now());
+      setTimeout(() => setSavedAt(null), 3000);
+    } catch (e) {
+      console.error('Failed to update user', e);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -270,9 +281,10 @@ function SettingsSection({
           <button
             type="button"
             onClick={onSave}
-            className="h-[40px] px-5 rounded-full bg-white text-[#0a0a0c] font-sans font-bold text-[13px] hover:bg-zinc-200 transition-colors"
+            disabled={loading}
+            className="h-[40px] px-5 rounded-full bg-white text-[#0a0a0c] font-sans font-bold text-[13px] hover:bg-zinc-200 transition-colors disabled:opacity-50"
           >
-            Guardar cambios
+            {loading ? 'Guardando...' : 'Guardar cambios'}
           </button>
           {savedAt && (
             <span className="font-sans text-[12px] text-emerald-400">Guardado ✓</span>

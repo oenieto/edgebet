@@ -38,9 +38,10 @@ _SLUG_TO_OF: dict[str, str] = {
     "ligue-1": "fr.1",
 }
 
-# Temporadas cubiertas: actual + una anterior (para tener suficiente histórico
-# para cómputo de ELO antes del matchday).
-_SEASONS = ("2024-25", "2025-26")
+# Temporadas cubiertas: actual + tres anteriores. Las temporadas previas
+# se usan para H2H (cuando los equipos no se han enfrentado este año) y
+# para enriquecer ELO. Cargas paralelas en _fetch_json mantienen latencia baja.
+_SEASONS = ("2022-23", "2023-24", "2024-25", "2025-26")
 
 _mem: dict[str, tuple[float, dict]] = {}
 

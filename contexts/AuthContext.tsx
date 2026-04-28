@@ -35,6 +35,7 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<User>;
   register: (email: string, password: string, name: string) => Promise<User>;
   logout: () => void;
+  updateUser: (name: string, email: string) => Promise<User>;
 }
 
 const TOKEN_KEY = 'edgebet.auth.token';
@@ -143,6 +144,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [persist],
   );
 
+  const updateUser = useCallback(
+    async (name: string, email: string) => {
+      if (!token) throw new Error('No token');
+      const res = await apiFetch<User>('/auth/me', {
+        method: 'PUT',
+        body: { name, email },
+        token: token,
+      });
+      persist(token, res);
+      return res;
+    },
+    [token, persist],
+  );
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -152,8 +167,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       register,
       logout,
+      updateUser,
     }),
-    [user, token, isHydrated, login, register, logout],
+    [user, token, isHydrated, login, register, logout, updateUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
