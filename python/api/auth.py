@@ -80,12 +80,13 @@ def _create_token(user_id: int, email: str) -> str:
 
 
 def _row_to_user(row) -> UserPublic:
+    created = row["created_at"]
     return UserPublic(
         id=row["id"],
         email=row["email"],
         name=row["name"],
         tier=row["tier"],
-        created_at=row["created_at"],
+        created_at=created.isoformat() if hasattr(created, "isoformat") else str(created),
         onboarding_done=bool(row["onboarding_done"]) if "onboarding_done" in row.keys() else False,
     )
 
