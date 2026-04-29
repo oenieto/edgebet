@@ -13,6 +13,7 @@ export interface ProbabilityTriplet {
 export interface Pick {
   id: string;
   match: string;
+  matchIcon?: string;
   homeTeam: string;
   awayTeam: string;
   league: string;

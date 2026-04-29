@@ -663,10 +663,11 @@ function PicksTable({
                   <div className="flex items-center gap-2.5">
                     <TierDot status={p.status} />
                     <div>
-                      <div className="font-sans font-semibold text-[13px] text-white">
+                      <div className="font-sans font-semibold text-[13px] text-white flex items-center gap-1.5">
+                        <span className="text-sm leading-none">{p.matchIcon || '⭐'}</span>
                         {locked ? '••• vs •••' : `${p.homeTeam} vs ${p.awayTeam}`}
                       </div>
-                      <div className="font-sans text-[11px] text-zinc-500 flex items-center gap-1.5">
+                      <div className="font-sans text-[11px] text-zinc-500 flex items-center gap-1.5 mt-0.5">
                         <span className="font-mono text-amber-500/80">{timeStr}</span>
                         <span className="md:hidden">· {p.league}</span>
                       </div>

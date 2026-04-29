@@ -147,6 +147,43 @@ def _tier_for_edge(edge_pp: float, ev_pct: float, sources_agree: bool) -> str:
     return "free"
 
 
+_teams_cache: dict[str, dict] = {}
+
+def get_teams_dict() -> dict[str, dict]:
+    global _teams_cache
+    if not _teams_cache:
+        try:
+            from api.db import connect
+            with connect() as cur:
+                cur.execute("SELECT name, country_id, entity_type FROM teams")
+                rows = cur.fetchall()
+                for r in rows:
+                    _teams_cache[r["name"]] = {"country_id": r["country_id"], "entity_type": r["entity_type"]}
+        except Exception as exc:
+            print(f"[picks_service] DB error caching teams: {exc}")
+    return _teams_cache
+
+def infer_match_icon(home_team: str, away_team: str) -> str:
+    teams_db = get_teams_dict()
+    home = teams_db.get(home_team)
+    away = teams_db.get(away_team)
+    
+    if not home or not away:
+        return "⭐"
+        
+    flags = {"ES": "🇪🇸", "EN": "🏴󠁧󠁢󠁥󠁮󠁧󠁿", "IT": "🇮🇹", "DE": "🇩🇪", "FR": "🇫🇷", "MX": "🇲🇽", "AR": "🇦🇷"}
+    
+    if home["entity_type"] == "Selección" and away["entity_type"] == "Selección":
+        return "🏆"
+    elif home["entity_type"] == "Club" and away["entity_type"] == "Club":
+        if home["country_id"] == away["country_id"]:
+            return flags.get(home["country_id"], "📍")
+        else:
+            return "⭐"
+            
+    return "⭐"
+
+
 @lru_cache(maxsize=16)
 def _load_league(slug: str):
     from api.fast_loader import compute_elo
@@ -300,6 +337,7 @@ def _build_pick_for_match(
     result = {
         "id": str(uuid4()),
         "match": f"{home_team} vs {away_team}",
+        "matchIcon": infer_match_icon(home_team, away_team),
         "homeTeam": home_team,
         "awayTeam": away_team,
         "league": cfg.name,

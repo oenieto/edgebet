@@ -71,12 +71,38 @@ CREATE TABLE IF NOT EXISTS user_alerts (
     triggered_at TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS teams (
+    id SERIAL PRIMARY KEY,
+    name TEXT UNIQUE NOT NULL,
+    country_id TEXT NOT NULL,
+    entity_type TEXT NOT NULL
+);
 """
 
 def init_db() -> None:
     try:
         with connect() as cur:
             cur.execute(SCHEMA)
+            
+            # Seed data para equipos principales
+            seed_query = """
+            INSERT INTO teams (name, country_id, entity_type) VALUES
+            ('Arsenal', 'EN', 'Club'), ('Chelsea', 'EN', 'Club'), 
+            ('Man City', 'EN', 'Club'), ('Liverpool', 'EN', 'Club'),
+            ('Real Madrid', 'ES', 'Club'), ('Barcelona', 'ES', 'Club'), 
+            ('Atletico Madrid', 'ES', 'Club'), ('Sevilla', 'ES', 'Club'), ('Getafe', 'ES', 'Club'),
+            ('Bayern Munich', 'DE', 'Club'), ('Dortmund', 'DE', 'Club'), 
+            ('Leverkusen', 'DE', 'Club'), ('RB Leipzig', 'DE', 'Club'),
+            ('Inter', 'IT', 'Club'), ('Juventus', 'IT', 'Club'), 
+            ('Napoli', 'IT', 'Club'), ('Milan', 'IT', 'Club'),
+            ('Paris SG', 'FR', 'Club'), ('Marseille', 'FR', 'Club'), 
+            ('Monaco', 'FR', 'Club'), ('Lille', 'FR', 'Club'),
+            ('Argentina', 'AR', 'Selección'), ('France', 'FR', 'Selección'), 
+            ('Spain', 'ES', 'Selección'), ('England', 'EN', 'Selección')
+            ON CONFLICT (name) DO NOTHING;
+            """
+            cur.execute(seed_query)
     except Exception as exc:
         print(f"[db] PostgreSQL init falló. Asegúrate de que Postgres corra: {exc}")
 

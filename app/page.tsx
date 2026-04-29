@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { ArrowRight, Zap, CheckCircle2, TrendingUp, Target, Lock, LogOut } from 'lucide-react';
+import { ArrowRight, Zap, CheckCircle2, TrendingUp, Target, Lock, LogOut, Shield, Flame } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 export default function HomePage() {
@@ -302,6 +302,154 @@ export default function HomePage() {
                   <div className="flex justify-between items-center">
                     <span className="text-xs text-tertiary">Edge Detectado</span>
                     <span className="font-mono text-amber-500 font-bold text-xs">+9.2%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Section 5: Parlays Recomendados */}
+      <section id="parlays-recomendados" className="py-24 px-8 bg-surface-container-lowest border-t border-surface-container-low scroll-mt-20">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex justify-between items-end mb-12">
+            <div>
+              <h2 className="text-3xl font-bold text-on-surface tracking-tight">Parlays Recomendados</h2>
+              <p className="text-tertiary mt-2">Combinaciones de picks del día optimizadas por nivel de riesgo.</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Parlay Seguro */}
+            <div className="bg-surface border border-surface-container-low rounded-2xl p-6 relative flex flex-col hover:border-amber-500/50 transition-colors">
+              <div className="absolute top-4 right-4 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded-full text-xs font-bold font-mono flex items-center">
+                <Shield className="w-3.5 h-3.5 mr-1" />
+                SEGURO
+              </div>
+              <div className="mb-6 pt-2">
+                <h3 className="font-bold text-xl text-on-surface">Double Seguro</h3>
+                <p className="text-sm text-tertiary mt-1">Nuestra combinación más conservadora.</p>
+              </div>
+              
+              <div className="space-y-4 mb-6 flex-1">
+                <div className="bg-surface-container-lowest p-3 rounded-lg border border-surface-container-low">
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="font-bold text-on-surface">ARS vs CHE</span>
+                    <span className="font-mono text-on-surface">1.85</span>
+                  </div>
+                  <div className="text-xs text-tertiary">Over 2.5 Goles</div>
+                </div>
+                <div className="bg-surface-container-lowest p-3 rounded-lg border border-surface-container-low">
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="font-bold text-on-surface">RMA vs GET</span>
+                    <span className="font-mono text-on-surface">2.10</span>
+                  </div>
+                  <div className="text-xs text-tertiary">RMA -1.5 (AH)</div>
+                </div>
+              </div>
+
+              <div className="mt-auto bg-amber-500/5 p-4 rounded-xl border border-amber-500/20">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-bold text-on-surface">Cuota Total</span>
+                  <span className="font-mono text-amber-500 font-bold text-xl">3.88</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Parlay Intermedio (Premium) */}
+            <div className="bg-surface border border-outline-variant/30 rounded-2xl p-6 relative flex flex-col overflow-hidden group">
+              <div className="absolute inset-0 bg-surface/80 backdrop-blur-[4px] z-10 flex flex-col items-center justify-center p-6 text-center">
+                <div className="w-12 h-12 bg-amber-500/10 rounded-full flex items-center justify-center mb-3">
+                  <Lock className="w-5 h-5 text-amber-500" />
+                </div>
+                <div className="font-bold mb-1 text-on-surface">Parlay Intermedio</div>
+                <div className="text-xs text-tertiary mb-4">Incluye picks premium con alto valor</div>
+                <Link href="/pricing" className="bg-amber-400 text-black rounded-full px-4 py-2 text-sm font-bold w-full hover:bg-amber-500 transition-colors">Desbloquear</Link>
+              </div>
+
+              <div className="opacity-50 blur-[2px] pointer-events-none select-none flex-1 flex flex-col">
+                <div className="absolute top-4 right-4 bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 px-3 py-1 rounded-full text-xs font-bold font-mono flex items-center">
+                  <TrendingUp className="w-3.5 h-3.5 mr-1" />
+                  MEDIO
+                </div>
+                <div className="mb-6 pt-2">
+                  <h3 className="font-bold text-xl text-on-surface">Double Valor</h3>
+                  <p className="text-sm text-tertiary mt-1">Equilibrio entre riesgo y recompensa.</p>
+                </div>
+                
+                <div className="space-y-4 mb-6 flex-1">
+                  <div className="bg-surface-container-lowest p-3 rounded-lg border border-surface-container-low">
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="font-bold text-on-surface">RMA vs GET</span>
+                      <span className="font-mono text-on-surface">2.10</span>
+                    </div>
+                    <div className="text-xs text-tertiary">RMA -1.5 (AH)</div>
+                  </div>
+                  <div className="bg-surface-container-lowest p-3 rounded-lg border border-surface-container-low">
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="font-bold text-on-surface">BAY vs DOR</span>
+                      <span className="font-mono text-on-surface">3.40</span>
+                    </div>
+                    <div className="text-xs text-tertiary">BAY Win to Nil</div>
+                  </div>
+                </div>
+
+                <div className="mt-auto bg-amber-500/5 p-4 rounded-xl border border-amber-500/20">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-bold text-on-surface">Cuota Total</span>
+                    <span className="font-mono text-amber-500 font-bold text-xl">7.14</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Parlay Arriesgado (Premium) */}
+            <div className="bg-surface border border-outline-variant/30 rounded-2xl p-6 relative flex flex-col overflow-hidden group">
+              <div className="absolute inset-0 bg-surface/80 backdrop-blur-[4px] z-10 flex flex-col items-center justify-center p-6 text-center">
+                <div className="w-12 h-12 bg-amber-500/10 rounded-full flex items-center justify-center mb-3">
+                  <Lock className="w-5 h-5 text-amber-500" />
+                </div>
+                <div className="font-bold mb-1 text-on-surface">Parlay Arriesgado</div>
+                <div className="text-xs text-tertiary mb-4">La combinada completa del día</div>
+                <Link href="/pricing" className="bg-amber-400 text-black rounded-full px-4 py-2 text-sm font-bold w-full hover:bg-amber-500 transition-colors">Desbloquear</Link>
+              </div>
+
+              <div className="opacity-50 blur-[2px] pointer-events-none select-none flex-1 flex flex-col">
+                <div className="absolute top-4 right-4 bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20 px-3 py-1 rounded-full text-xs font-bold font-mono flex items-center">
+                  <Flame className="w-3.5 h-3.5 mr-1" />
+                  RIESGO
+                </div>
+                <div className="mb-6 pt-2">
+                  <h3 className="font-bold text-xl text-on-surface">Lotto Treble</h3>
+                  <p className="text-sm text-tertiary mt-1">Máxima cuota, ideal para stakes bajos.</p>
+                </div>
+                
+                <div className="space-y-4 mb-6 flex-1">
+                  <div className="bg-surface-container-lowest p-3 rounded-lg border border-surface-container-low">
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="font-bold text-on-surface">ARS vs CHE</span>
+                      <span className="font-mono text-on-surface">1.85</span>
+                    </div>
+                  </div>
+                  <div className="bg-surface-container-lowest p-3 rounded-lg border border-surface-container-low">
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="font-bold text-on-surface">RMA vs GET</span>
+                      <span className="font-mono text-on-surface">2.10</span>
+                    </div>
+                  </div>
+                  <div className="bg-surface-container-lowest p-3 rounded-lg border border-surface-container-low">
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="font-bold text-on-surface">BAY vs DOR</span>
+                      <span className="font-mono text-on-surface">3.40</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-auto bg-amber-500/5 p-4 rounded-xl border border-amber-500/20">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-bold text-on-surface">Cuota Total</span>
+                    <span className="font-mono text-amber-500 font-bold text-xl">13.21</span>
                   </div>
                 </div>
               </div>
