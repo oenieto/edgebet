@@ -35,6 +35,16 @@ if str(_PY_ROOT) not in sys.path:
 PREDICTION_MAP = {"H": "home", "D": "draw", "A": "away"}
 
 
+def _logo_url(team_name: str) -> str | None:
+    """Wrapper lazy para team_logos.logo_url — importa solo cuando se necesita."""
+    try:
+        from api.team_logos import logo_url
+        return logo_url(team_name)
+    except Exception:
+        return None
+
+
+
 @dataclass
 class LeagueConfig:
     slug: str
@@ -340,6 +350,8 @@ def _build_pick_for_match(
         "matchIcon": infer_match_icon(home_team, away_team),
         "homeTeam": home_team,
         "awayTeam": away_team,
+        "homeLogo": _logo_url(home_team),
+        "awayLogo": _logo_url(away_team),
         "league": cfg.name,
         "leagueSlug": slug,
         "kickoff": "2026-04-19T16:30:00Z",

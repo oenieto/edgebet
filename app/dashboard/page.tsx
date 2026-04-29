@@ -20,6 +20,7 @@ import {
 import LeagueRail from '@/components/shell/LeagueRail';
 import BankrollTracker from '@/components/bankroll/BankrollTracker';
 import SmartAlerts from '@/components/bankroll/SmartAlerts';
+import TeamLogo from '@/components/picks/TeamLogo';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUserStore } from '@/lib/store/userStore';
 import { getLeagues, getMetrics, getPicksToday } from '@/lib/api/picks';
@@ -637,12 +638,34 @@ function PicksTable({
               const dateObj = new Date(p.kickoff);
               const timeStr = isNaN(dateObj.getTime()) ? '' : dateObj.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
               
-              const predLabel =
-              p.prediction === 'home'
-                ? `${p.homeTeam} gana`
-                : p.prediction === 'away'
-                  ? `${p.awayTeam} gana`
-                  : 'Empate';
+              const predLabel = (() => {
+                const pred = p.prediction as string;
+                if (pred === 'home') return `${p.homeTeam} gana`;
+                if (pred === 'away') return `${p.awayTeam} gana`;
+                if (pred === 'draw') return 'Empate';
+                if (pred === '1X') return `${p.homeTeam} o Empate`;
+                if (pred === 'X2') return `${p.awayTeam} o Empate`;
+                if (pred === '12') return `${p.homeTeam} o ${p.awayTeam}`;
+                if (pred === 'over_1_5') return 'Más de 1.5 goles';
+                if (pred === 'under_1_5') return 'Menos de 1.5 goles';
+                if (pred === 'over_2_5') return 'Más de 2.5 goles';
+                if (pred === 'under_2_5') return 'Menos de 2.5 goles';
+                if (pred === 'over_3_5') return 'Más de 3.5 goles';
+                if (pred === 'under_3_5') return 'Menos de 3.5 goles';
+                return pred;
+              })();
+
+              const marketLabel = (() => {
+                const m = p.market;
+                if (m === 'OU') return 'Goles';
+                if (m === 'DC') return '2da Oport.';
+                return null;
+              })();
+              const marketColor = p.market === 'OU'
+                ? 'text-blue-400 border-blue-400/30 bg-blue-400/10'
+                : p.market === 'DC'
+                  ? 'text-purple-400 border-purple-400/30 bg-purple-400/10'
+                  : null;
 
               let stakeDisplay = '—';
               if (!locked) {
@@ -660,18 +683,29 @@ function PicksTable({
                 className={`border-t border-white/[0.04] transition-colors ${!locked ? 'cursor-pointer hover:bg-white/[0.02]' : ''}`}
               >
                 <td className="px-5 py-3">
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-3">
                     <TierDot status={p.status} />
-                    <div>
-                      <div className="font-sans font-semibold text-[13px] text-white flex items-center gap-1.5">
-                        <span className="text-sm leading-none">{p.matchIcon || '⭐'}</span>
-                        {locked ? '••• vs •••' : `${p.homeTeam} vs ${p.awayTeam}`}
+                    {locked ? (
+                      <div>
+                        <div className="font-sans font-semibold text-[13px] text-zinc-500">••• vs •••</div>
+                        <div className="font-sans text-[11px] text-zinc-600 mt-0.5">{timeStr}</div>
                       </div>
-                      <div className="font-sans text-[11px] text-zinc-500 flex items-center gap-1.5 mt-0.5">
-                        <span className="font-mono text-amber-500/80">{timeStr}</span>
-                        <span className="md:hidden">· {p.league}</span>
+                    ) : (
+                      <div className="flex items-center gap-3">
+                        <div className="flex flex-col items-center gap-1 min-w-[44px]">
+                          <TeamLogo src={(p as any).homeLogo} name={p.homeTeam} size={26} />
+                          <span className="font-sans text-[9.5px] text-zinc-400 text-center truncate max-w-[48px]">{p.homeTeam}</span>
+                        </div>
+                        <div className="flex flex-col items-center">
+                          <span className="font-mono text-[10px] text-zinc-600">{timeStr}</span>
+                          <span className="font-mono text-[11px] font-bold text-zinc-500">vs</span>
+                        </div>
+                        <div className="flex flex-col items-center gap-1 min-w-[44px]">
+                          <TeamLogo src={(p as any).awayLogo} name={p.awayTeam} size={26} />
+                          <span className="font-sans text-[9.5px] text-zinc-400 text-center truncate max-w-[48px]">{p.awayTeam}</span>
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </td>
                 <td className="px-3 py-3 hidden md:table-cell">
@@ -681,7 +715,14 @@ function PicksTable({
                   {locked ? (
                     <span className="font-mono text-[11px] text-zinc-600">●●●</span>
                   ) : (
-                    <span className="font-sans text-[12.5px] text-white font-medium">{predLabel}</span>
+                    <div className="flex flex-col items-end gap-1">
+                      {marketLabel && marketColor && (
+                        <span className={`inline-flex items-center h-[16px] px-1.5 rounded border font-mono font-bold text-[8px] tracking-wide ${marketColor}`}>
+                          {marketLabel}
+                        </span>
+                      )}
+                      <span className="font-sans text-[12px] text-white font-medium text-right leading-tight">{predLabel}</span>
+                    </div>
                   )}
                 </td>
                 <td className="px-3 py-3 text-right hidden sm:table-cell">
