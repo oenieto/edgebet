@@ -78,6 +78,18 @@ CREATE TABLE IF NOT EXISTS teams (
     country_id TEXT NOT NULL,
     entity_type TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS odds_history (
+    id SERIAL PRIMARY KEY,
+    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    event_id TEXT NOT NULL,
+    bookmaker TEXT NOT NULL,
+    market TEXT NOT NULL,
+    odds_value REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_odds_history_event_id ON odds_history(event_id);
+CREATE INDEX IF NOT EXISTS idx_odds_history_timestamp ON odds_history(timestamp);
 """
 
 def init_db() -> None:
