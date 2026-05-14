@@ -1,17 +1,26 @@
 'use client';
 
 import { CheckCircle2, Lock, Target } from 'lucide-react';
-import type { Pick } from '@/types';
+import type { Pick, PickResult } from '@/types';
 
 interface PickCardProps {
   pick: Pick;
   locked?: boolean;
 }
 
-const predictionLabel: Record<Pick['prediction'], string> = {
+const predictionLabel: Record<PickResult, string> = {
   home: 'Gana local',
   draw: 'Empate',
   away: 'Gana visitante',
+  over_1_5: 'Más de 1.5 goles',
+  under_1_5: 'Menos de 1.5 goles',
+  over_2_5: 'Más de 2.5 goles',
+  under_2_5: 'Menos de 2.5 goles',
+  over_3_5: 'Más de 3.5 goles',
+  under_3_5: 'Menos de 3.5 goles',
+  '1X': 'Local o Empate',
+  X2: 'Visitante o Empate',
+  '12': 'Local o Visitante',
 };
 
 function formatKickoff(iso: string): string {

@@ -3,9 +3,10 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Bell, Crown, LogOut } from 'lucide-react';
+import { Crown, LogOut } from 'lucide-react';
 
 import { useAuth } from '@/contexts/AuthContext';
+import NotificationBell from '@/components/notifications/NotificationBell';
 
 const NAV = [
   { label: 'Todos los análisis', href: '/dashboard', match: 'exact' as const },
@@ -16,6 +17,7 @@ const NAV = [
     match: 'prefix' as const,
   },
   { label: 'Promos', href: '/dashboard/promos', match: 'prefix' as const },
+  { label: 'Parlays', href: '/dashboard/parlays', match: 'prefix' as const },
   { label: 'Historial', href: '/dashboard/history', match: 'prefix' as const },
 ];
 
@@ -76,13 +78,9 @@ export default function AppHeader() {
             >
               Ofertas
             </Link>
-            <button
-              type="button"
-              className="hidden sm:flex w-[34px] h-[34px] rounded-md bg-white/5 border border-white/[0.08] items-center justify-center text-zinc-300 hover:text-white hover:bg-white/10 transition-colors"
-              aria-label="Notificaciones"
-            >
-              <Bell className="w-4 h-4" />
-            </button>
+            <div className="hidden sm:block">
+              <NotificationBell />
+            </div>
 
           </div>
         </div>

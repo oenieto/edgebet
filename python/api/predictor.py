@@ -27,6 +27,10 @@ FEATURE_COLUMNS = [
     "home_xG_proxy", "away_xG_proxy", "diff_xG_proxy",
     "home_rest_days", "away_rest_days", "rest_advantage",
     "norm_prob_H", "norm_prob_D", "norm_prob_A",
+    # Sprint 1 additions: PPDA, possession last third, real xG
+    "home_ppda", "away_ppda",
+    "home_poss_final_third", "away_poss_final_third",
+    "home_xG_real", "away_xG_real", "diff_xG_real",
 ]
 
 
@@ -90,9 +94,22 @@ def artifacts_info() -> dict:
 
 
 def _compute_xg_proxy(sot: float, shots: float) -> float:
+    """Legacy xG proxy — used as fallback when real xG is unavailable."""
     sot = max(sot or 0.0, 0.0)
     shots = max(shots or 0.0, 0.0)
     return sot * 0.30 + max(shots - sot, 0.0) * 0.03
+
+
+def _get_real_xg(team_name: str) -> float | None:
+    """Try to get real xG from xg_provider, return None on failure."""
+    try:
+        from api.xg_provider import get_team_xg
+        data = get_team_xg(team_name)
+        if data and data.get("xg_for", 0) > 0:
+            return data["xg_for"]
+    except Exception:
+        pass
+    return None
 
 
 def _compute_rest_days(matches: list[dict], team: str, as_of: datetime) -> int:
@@ -155,6 +172,10 @@ def build_feature_row(
     home_xg = _compute_xg_proxy(home_sot, home_shots)
     away_xg = _compute_xg_proxy(away_sot, away_shots)
 
+    # Real xG from Understat (Sprint 1) — falls back to proxy
+    home_xg_real = _get_real_xg(home_team) or home_xg
+    away_xg_real = _get_real_xg(away_team) or away_xg
+
     home_rest = _compute_rest_days(matches, home_team, as_of)
     away_rest = _compute_rest_days(matches, away_team, as_of)
 
@@ -194,6 +215,14 @@ def build_feature_row(
         "norm_prob_H": float(bookmaker_probs.get("home", 0.45)),
         "norm_prob_D": float(bookmaker_probs.get("draw", 0.27)),
         "norm_prob_A": float(bookmaker_probs.get("away", 0.28)),
+        # Sprint 1: new features
+        "home_ppda": float(home_form.get("ppda", 10.0)),
+        "away_ppda": float(away_form.get("ppda", 10.0)),
+        "home_poss_final_third": float(home_form.get("poss_final_third", 30.0)),
+        "away_poss_final_third": float(away_form.get("poss_final_third", 30.0)),
+        "home_xG_real": home_xg_real,
+        "away_xG_real": away_xg_real,
+        "diff_xG_real": home_xg_real - away_xg_real,
     }
 
 

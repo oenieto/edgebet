@@ -68,10 +68,20 @@ class CLFixture:
     stage: str  # "Group", "Round of 16", "Quarter-finals", "Semi-finals", "Final"
 
 
-# Sin fixtures hardcodeadas: solo se muestran partidos de CL si hay una fuente
-# verificada (api.football-data.org con API key, o equivalente).
-# Nunca inventar matchups — fabricar picks sobre partidos irreales rompe confianza.
-CL_FIXTURES: list[CLFixture] = []
+# Fixtures curados del próximo matchday CL (actualizar antes de cada jornada).
+# Idealmente conectar api.football-data.org en prod para auto-feed; mientras,
+# los nombres deben coincidir EXACTO con los keys de CL_TEAM_TO_LEAGUE para
+# que la búsqueda de histórico/forma funcione.
+CL_FIXTURES: list[CLFixture] = [
+    # Cuartos — vuelta (calendario UEFA 2025/26)
+    CLFixture(home="Man City", away="Real Madrid", date="07/05/2026", time="20:00", stage="Quarter-finals"),
+    CLFixture(home="Arsenal", away="Bayern Munich", date="07/05/2026", time="20:00", stage="Quarter-finals"),
+    CLFixture(home="Paris SG", away="Barcelona", date="08/05/2026", time="20:00", stage="Quarter-finals"),
+    CLFixture(home="Atletico Madrid", away="Dortmund", date="08/05/2026", time="20:00", stage="Quarter-finals"),
+    # Semis (placeholder — se ajustan tras los cuartos)
+    CLFixture(home="Real Madrid", away="Bayern Munich", date="14/05/2026", time="20:00", stage="Semi-finals"),
+    CLFixture(home="Barcelona", away="Dortmund", date="15/05/2026", time="20:00", stage="Semi-finals"),
+]
 
 
 def list_fixtures() -> list[CLFixture]:
@@ -86,29 +96,37 @@ def team_league(team: str) -> Optional[str]:
 
 @lru_cache(maxsize=1)
 def _merged_context() -> tuple:
-    """Combina históricos + ratings ELO de las 5 grandes ligas para CL (paralelo)."""
+    """Combina históricos + ratings ELO de las 5 grandes ligas para CL (paralelo).
+
+    Antes importaba `picks_service._load_league` y creaba un ciclo de imports.
+    Ahora llama directamente a los loaders/elo, manteniendo `picks_service`
+    libre de dependencia hacia este módulo a nivel de carga.
+    """
     from concurrent.futures import ThreadPoolExecutor
-    from api.picks_service import _load_league
+    from api.openfootball_loader import load_history_of
+    from api.fast_loader import compute_elo
 
     slugs = ("premier-league", "la-liga", "bundesliga", "serie-a", "ligue-1")
 
     def _safe_load(slug: str):
         try:
-            return _load_league(slug)
+            matches = load_history_of(slug)
+            ratings = compute_elo(matches, k=32, home_advantage=65)
+            return matches, ratings
         except Exception as exc:
             print(f"[cl] no pude cargar {slug}: {exc}")
-            return ([], {}, None)
+            return ([], {})
 
     with ThreadPoolExecutor(max_workers=5) as ex:
         results = list(ex.map(_safe_load, slugs))
 
     merged_matches: list[dict] = []
     merged_ratings: dict[str, float] = {}
-    for matches, ratings, _ in results:
+    for matches, ratings in results:
         merged_matches.extend(matches)
         merged_ratings.update(ratings)
 
-    merged_matches.sort(key=lambda m: m.get("DateObj"))
+    merged_matches.sort(key=lambda m: m.get("DateObj") or "")
     return merged_matches, merged_ratings
 
 

@@ -1,8 +1,9 @@
-version: '3.8'
+version: '3.9'
 
 services:
   db:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: edgebet
       POSTGRES_PASSWORD: edgebet
@@ -11,23 +12,29 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U edgebet"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   backend:
     build:
       context: ./python
       dockerfile: Dockerfile
     command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
     volumes:
       - ./python:/app
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=postgresql://edgebet:edgebet@db:5432/edgebet
-      - STRIPE_SECRET_KEY=mock-key
-      - STRIPE_WEBHOOK_SECRET=mock-secret
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
   frontend:
     build:

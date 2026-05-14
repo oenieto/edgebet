@@ -2,8 +2,8 @@
 
 import React, { Fragment, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
-  AlertCircle,
   ArrowRight,
   Crown,
   Flame,
@@ -14,13 +14,15 @@ import {
   Target,
   TrendingUp,
   Zap,
-  Wallet,
 } from 'lucide-react';
 
 import LeagueRail from '@/components/shell/LeagueRail';
 import BankrollTracker from '@/components/bankroll/BankrollTracker';
 import SmartAlerts from '@/components/bankroll/SmartAlerts';
+import PerformanceChart from '@/components/performance/PerformanceChart';
+import OddsSparkline from '@/components/picks/OddsSparkline';
 import TeamLogo from '@/components/picks/TeamLogo';
+import PicksEmptyState from '@/components/picks/PicksEmptyState';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUserStore } from '@/lib/store/userStore';
 import { getLeagues, getMetrics, getPicksToday } from '@/lib/api/picks';
@@ -189,6 +191,9 @@ export default function DashboardPage() {
           </div>
           <MetricsRow metrics={metrics} picksCount={picks?.length} tierCounts={tierCounts} />
 
+          {/* Performance chart */}
+          <PerformanceChart />
+
           {/* Featured */}
           {highlights && !loading && !error && (
             <div>
@@ -273,20 +278,21 @@ export default function DashboardPage() {
             {loading && <TableSkeleton />}
 
             {error && !loading && (
-              <div className="p-6 flex items-start gap-4 border-l-2 border-red-500 bg-red-500/5">
-                <AlertCircle className="w-5 h-5 text-red-400 mt-0.5 flex-shrink-0" />
-                <div>
-                  <p className="font-sans font-bold text-[13px] text-red-200 mb-1">Backend no disponible</p>
-                  <p className="font-sans text-[12px] text-red-300/80 font-mono">{error}</p>
-                </div>
+              <div className="p-6">
+                <PicksEmptyState
+                  variant="error"
+                  description={error}
+                  ctaHref="/dashboard"
+                  ctaLabel="Reintentar"
+                />
               </div>
             )}
 
             {!loading && !error && filteredPicks.length === 0 && (
-              <div className="p-10 text-center">
-                <p className="font-sans text-[13px] text-zinc-500">
-                  No hay picks para este filtro.
-                </p>
+              <div className="p-6">
+                <PicksEmptyState
+                  variant={picks && picks.length === 0 ? 'searching' : 'no-results'}
+                />
               </div>
             )}
 
@@ -305,6 +311,26 @@ function shouldLock(status: Pick['status'] | undefined, userTier: 'free' | 'pro'
   if (userTier === 'vip') return false;
   if (userTier === 'pro') return status === 'vip';
   return status !== 'free';
+}
+
+/**
+ * Generate synthetic 24h odds history for a pick.
+ * Deterministic based on pick id so sparklines are stable across renders.
+ * Will be replaced by real odds_history data once Mauricio's pipeline is live.
+ */
+function generateOddsHistory(currentOdds: number, pickId: string): number[] {
+  let seed = 0;
+  for (let i = 0; i < pickId.length; i++) seed += pickId.charCodeAt(i);
+  const points: number[] = [];
+  let val = currentOdds + (seed % 10 - 5) * 0.02;
+  for (let i = 0; i < 12; i++) {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    const delta = ((seed % 100) - 50) * 0.003;
+    val = Math.max(1.05, val + delta);
+    points.push(+val.toFixed(3));
+  }
+  points.push(currentOdds);
+  return points;
 }
 
 function buildHighlights(picks: Pick[]) {
@@ -569,8 +595,11 @@ function PicksTable({
   userTier: 'free' | 'pro' | 'vip';
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const { suggestedStake, isOnboardingDone } = useUserStore();
-  const stakeValue = suggestedStake();
+  // Suscripción reactiva a Zustand: cuando el user cambia bankroll o stake_pct
+  // en /onboarding o /perfil, esta tabla se re-renderiza automáticamente y
+  // los valores Kelly por pick se recalculan al instante.
+  const { profile, isOnboardingDone } = useUserStore();
+  const bankroll = profile?.bankroll ?? 0;
 
   // Agrupar por fecha local
   const groupedPicks = useMemo(() => {
@@ -619,6 +648,7 @@ function PicksTable({
             <th className="px-3 py-2.5 font-medium text-right hidden sm:table-cell">Confianza</th>
             <th className="px-3 py-2.5 font-medium text-right hidden md:table-cell">Edge</th>
             <th className="px-3 py-2.5 font-medium text-right">EV</th>
+            <th className="px-2 py-2.5 font-medium text-center hidden lg:table-cell">Odds 24h</th>
             <th className="px-3 py-2.5 font-medium text-right hidden lg:table-cell">Stake</th>
             <th className="px-5 py-2.5 font-medium text-right">Cuota</th>
           </tr>
@@ -626,7 +656,7 @@ function PicksTable({
         {groupedPicks.map((group) => (
           <tbody key={group.dateLabel}>
             <tr>
-              <td colSpan={8} className="px-5 py-2 bg-[#16161a] border-y border-white/[0.04]">
+              <td colSpan={9} className="px-5 py-2 bg-[#16161a] border-y border-white/[0.04]">
                 <div className="font-sans text-[11px] font-bold tracking-widest uppercase text-amber-500/80">
                   {group.dateLabel}
                 </div>
@@ -667,10 +697,15 @@ function PicksTable({
                   ? 'text-purple-400 border-purple-400/30 bg-purple-400/10'
                   : null;
 
+              // Kelly real por pick: backend devuelve suggestedStake como % del bankroll.
+              // Se multiplica por el bankroll actual del usuario → cantidad en USD reactiva.
+              const kellyDollars = bankroll > 0 ? (p.suggestedStake / 100) * bankroll : 0;
               let stakeDisplay = '—';
               if (!locked) {
                 if (isOnboardingDone()) {
-                  stakeDisplay = `$${stakeValue.toFixed(2)}`;
+                  stakeDisplay = kellyDollars > 0
+                    ? `$${kellyDollars.toFixed(2)}`
+                    : `${p.suggestedStake.toFixed(1)}%`;
                 } else {
                   stakeDisplay = 'Configura bankroll';
                 }
@@ -749,6 +784,11 @@ function PicksTable({
                     </span>
                   )}
                 </td>
+                <td className="px-2 py-3 hidden lg:table-cell">
+                  <div className="flex justify-center">
+                    <OddsSparkline data={generateOddsHistory(p.odds ?? 1.9, p.id)} />
+                  </div>
+                </td>
                 <td className="px-3 py-3 text-right hidden lg:table-cell">
                   <div className="font-mono text-[12.5px] font-semibold text-white">
                     {isOnboardingDone() || locked ? (
@@ -776,19 +816,36 @@ function PicksTable({
                   )}
                 </td>
               </tr>
-              {isExpanded && !locked && (
-                <tr className="bg-black/20 border-t border-white/[0.02]">
-                  <td colSpan={8} className="px-5 py-4">
-                    <div className="flex items-start gap-3">
-                      <Sparkles className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
-                      <div className="font-sans text-[13px] text-zinc-300 leading-relaxed max-w-4xl">
-                        <span className="text-white font-semibold mr-1">Análisis IA:</span>
-                        {p.aiReasoning}
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              )}
+              <AnimatePresence initial={false}>
+                {isExpanded && !locked && (
+                  <motion.tr
+                    key={`${p.id}-detail`}
+                    className="bg-black/20 border-t border-white/[0.02]"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.18, ease: 'easeOut' }}
+                  >
+                    <td colSpan={9} className="px-5 py-0">
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.22, ease: 'easeOut' }}
+                        style={{ overflow: 'hidden' }}
+                      >
+                        <div className="py-4 flex items-start gap-3">
+                          <Sparkles className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
+                          <div className="font-sans text-[13px] text-zinc-300 leading-relaxed max-w-4xl">
+                            <span className="text-white font-semibold mr-1">Análisis IA:</span>
+                            {p.aiReasoning}
+                          </div>
+                        </div>
+                      </motion.div>
+                    </td>
+                  </motion.tr>
+                )}
+              </AnimatePresence>
               </Fragment>
             );
           })}

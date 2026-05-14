@@ -7,6 +7,7 @@ import { ArrowLeft, Clock, MapPin, Target, Flame, Trophy, Activity, Lock, BarCha
 import { getPick, getPickStats } from '@/lib/api/picks';
 import { useAuth } from '@/contexts/AuthContext';
 import TeamLogo from '@/components/picks/TeamLogo';
+import PolymarketChart from '@/components/performance/PolymarketChart';
 import type { Pick, MatchStat, TeamStats } from '@/types';
 
 function formatKickoffDate(iso: string) {
@@ -222,7 +223,7 @@ export default function PickDetailPage() {
                     <h3 className="font-sans font-bold text-[16px] text-white">Probabilidades (Layer Blend)</h3>
                   </div>
                   <div className="space-y-4">
-                    {pick.blendedProb && Object.entries(pick.blendedProb).map(([outcome, prob]) => {
+                    {pick.blendedProb && Object.entries(pick.blendedProb as Record<string, number>).map(([outcome, prob]) => {
                        const label = predictionLabel[outcome] ?? outcome;
                        const pct = (prob * 100).toFixed(1);
                        const isSelected = outcome === pick.prediction;
@@ -240,6 +241,15 @@ export default function PickDetailPage() {
                     })}
                   </div>
                 </div>
+
+                <PolymarketChart
+                  mlProb={pick.mlProb}
+                  polyProb={pick.polyProb}
+                  bkProb={pick.bkProb}
+                  prediction={pick.prediction}
+                  homeTeam={pick.homeTeam}
+                  awayTeam={pick.awayTeam}
+                />
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="bg-[#16161a] border border-white/[0.04] rounded-xl p-5">
@@ -274,7 +284,7 @@ export default function PickDetailPage() {
                    </p>
                 ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                    {stats.h2h.map((m, i) => (
+                    {stats.h2h.map((m: MatchStat, i: number) => (
                       <H2HCard key={i} match={m} />
                     ))}
                   </div>

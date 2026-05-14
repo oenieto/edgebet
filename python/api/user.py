@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import psycopg2
-from typing import Annotated
+import json
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Body
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.auth import UserPublic, get_current_user
 from api.db import connect
-import json
+from api.ranks import get_user_rank_state, list_user_achievements, settle_bet
 
 router = APIRouter(prefix="/user", tags=["user"])
 
@@ -33,6 +33,14 @@ class BetRequest(BaseModel):
     stake: float
     odds: float
     bet_date: str
+    market: str | None = "ML"
+    bookmaker: str | None = None
+
+
+class BetSettleRequest(BaseModel):
+    bet_id: int
+    result: Literal["win", "loss", "void"]
+    pnl: float | None = None
 
 
 class AlertUpdate(BaseModel):
@@ -206,14 +214,72 @@ def get_bets(user_id: int, user: Annotated[UserPublic, Depends(get_current_user)
 def create_bet(user_id: int, body: BetRequest, user: Annotated[UserPublic, Depends(get_current_user)]):
     if user.id != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
-        
+
     with connect() as cur:
         cur.execute(
-            """INSERT INTO user_bets (user_id, pick_id, match, prediction, stake, odds, result, bet_date)
-            VALUES (%s, %s, %s, %s, %s, %s, 'pending', %s)""",
-            (user_id, body.pick_id, body.match, body.prediction, body.stake, body.odds, body.bet_date)
+            """INSERT INTO user_bets (user_id, pick_id, match, prediction, market, stake, odds, result, bookmaker, bet_date)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending', %s, %s) RETURNING id""",
+            (user_id, body.pick_id, body.match, body.prediction, (body.market or "ML"),
+             body.stake, body.odds, body.bookmaker, body.bet_date),
         )
-    return {"status": "success"}
+        row = cur.fetchone()
+    return {"status": "success", "bet_id": row["id"] if row else None}
+
+
+@router.post("/{user_id}/bets/settle")
+def settle_user_bet(
+    user_id: int,
+    body: BetSettleRequest,
+    user: Annotated[UserPublic, Depends(get_current_user)],
+):
+    """
+    Liquida una apuesta del usuario y dispara el flujo de XP/rangos/achievements.
+    El owner puede settlearse a sí mismo (caso self-reporting). En producción
+    debería llamarse desde un job cron que cruza resultados reales.
+    """
+    if user.id != user_id and user.tier != "vip":
+        # Permito a VIP/admin settlear de otros usuarios para QA
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    with connect() as cur:
+        cur.execute("SELECT * FROM user_bets WHERE id = %s AND user_id = %s",
+                    (body.bet_id, user_id))
+        bet = cur.fetchone()
+        if not bet:
+            raise HTTPException(status_code=404, detail="Bet no encontrada")
+
+        pnl = body.pnl
+        if pnl is None:
+            stake = float(bet["stake"]); odds = float(bet["odds"] or 0)
+            if body.result == "win":
+                pnl = stake * (odds - 1.0)
+            elif body.result == "loss":
+                pnl = -stake
+            else:
+                pnl = 0.0
+
+        cur.execute(
+            "UPDATE user_bets SET result=%s, pnl=%s WHERE id=%s",
+            (body.result, pnl, body.bet_id),
+        )
+
+    # settle_bet() abre su propia conexión; lo dejamos fuera del bloque anterior
+    summary = settle_bet(body.bet_id)
+    return {"status": "settled", **summary}
+
+
+@router.get("/{user_id}/rank")
+def get_rank(user_id: int, user: Annotated[UserPublic, Depends(get_current_user)]):
+    if user.id != user_id and user.tier != "vip":
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return get_user_rank_state(user_id)
+
+
+@router.get("/{user_id}/achievements")
+def get_achievements(user_id: int, user: Annotated[UserPublic, Depends(get_current_user)]):
+    if user.id != user_id and user.tier != "vip":
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return {"achievements": list_user_achievements(user_id)}
 
 
 @router.get("/{user_id}/alerts")

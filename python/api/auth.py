@@ -5,9 +5,16 @@ bcrypt para passwords + JWT para sesiones.
 from __future__ import annotations
 
 import os
-import psycopg2
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
+
+try:
+    import psycopg2
+    _PG_INTEGRITY = (psycopg2.IntegrityError,)
+except ImportError:
+    _PG_INTEGRITY = ()
+_INTEGRITY_ERRORS = _PG_INTEGRITY + (sqlite3.IntegrityError,)
 
 import bcrypt
 import jwt
@@ -130,7 +137,7 @@ def register(body: RegisterRequest) -> AuthResponse:
             user_id = cur.fetchone()["id"]
             cur.execute("SELECT * FROM users WHERE id = %s", (user_id,))
             row = cur.fetchone()
-    except psycopg2.IntegrityError:
+    except _INTEGRITY_ERRORS:
         raise HTTPException(status_code=409, detail="Email already registered")
 
     user = _row_to_user(row)

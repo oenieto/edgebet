@@ -106,3 +106,105 @@ export interface PickStatsResponse {
   away_stats: TeamStats;
 }
 
+// Performance dashboard types
+export interface AccuracyPoint {
+  date: string;
+  accuracy: number;
+  picks_resolved: number;
+}
+
+export interface RoiPoint {
+  date: string;
+  daily_roi: number;
+  cumulative_roi: number;
+}
+
+export interface LeaguePerformance {
+  slug: string;
+  name: string;
+  accuracy: number;
+  picks_resolved: number;
+  roi: number;
+}
+
+export interface PerformanceSummary {
+  avg_accuracy: number;
+  total_roi: number;
+  total_picks: number;
+  best_day: string;
+  worst_day: string;
+}
+
+export interface PerformanceData {
+  period_days: number;
+  accuracy_series: AccuracyPoint[];
+  roi_series: RoiPoint[];
+  league_breakdown: LeaguePerformance[];
+  summary: PerformanceSummary;
+}
+
+// Parlay types
+export interface ParlayLeg {
+  pickId: string;
+  match: string;
+  homeTeam: string;
+  awayTeam: string;
+  prediction: string;
+  odds: number;
+  confidence: number;
+  market: string;
+}
+
+export interface Parlay {
+  id: string;
+  legs: ParlayLeg[];
+  combinedOdds: number;
+  stake: number;
+  potentialPayout: number;
+  correlationPenalty: number;
+  tier: 'safe' | 'medium' | 'risky';
+}
+
+// Notification types
+export interface AppNotification {
+  id: string;
+  type: 'high_confidence_pick' | 'steam_move' | 'result_settled' | 'achievement_unlocked';
+  title: string;
+  message: string;
+  timestamp: string;
+  read: boolean;
+  actionUrl?: string;
+}
+
+// Player prop types
+export interface PlayerPropLine {
+  player_name: string;
+  team: string;
+  prop_type: 'shots' | 'sot' | 'cards' | 'passes' | 'goals';
+  line: number;
+  over_prob: number;
+  under_prob: number;
+  odds_over?: number;
+  odds_under?: number;
+}
+
+// Market outcome types (from Poisson)
+export interface MarketOutcome {
+  market: 'OU' | 'DC';
+  outcome: string;
+  label: string;
+  our_prob_pct: number;
+  market_prob_pct?: number | null;
+  odds?: number | null;
+  edge_pp?: number | null;
+  ev_pct?: number | null;
+}
+
+export interface MarketsData {
+  lambda_home: number;
+  lambda_away: number;
+  expected_total_goals: number;
+  ou_outcomes: MarketOutcome[];
+  dc_outcomes: MarketOutcome[];
+}
+

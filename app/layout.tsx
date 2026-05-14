@@ -22,8 +22,12 @@ export const metadata: Metadata = {
   description:
     'Arquitectura cuantitativa para el mercado de fútbol. Detectamos divergencias de probabilidad cruzando ML, Polymarket y casas de apuestas.',
   icons: {
-    icon: '/favicon.png',
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/favicon.png', type: 'image/png' },
+    ],
     apple: '/favicon.png',
+    shortcut: '/favicon.ico',
   },
 };
 

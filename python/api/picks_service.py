@@ -22,24 +22,37 @@ from functools import lru_cache
 from pathlib import Path
 from uuid import uuid4
 
+# Permitir imports desde python/ ANTES de importar deterministic_pick (vive en /python)
+_PY_ROOT = Path(__file__).resolve().parent.parent
+if str(_PY_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PY_ROOT))
+
+# Top-level imports — promovidos desde el cuerpo de funciones tras detectar
+# TimeoutError (Errno 60) en imports lazy bajo carga de I/O. Ahora todo se
+# resuelve en startup, no por request.
+from api.db import connect
+from api import predictor
+from api.claude_narrative import generate_narrative, merge_narrative_into_pick
+from api.openfootball_loader import load_fixtures_of, load_history_of
+from api.fast_loader import compute_elo, compute_team_form
+from api.team_logos import logo_url as _team_logo_url
+from api.polymarket_live import find_match_probs
+from api.poisson_markets import build_market_outcomes
+from api.champions_league import list_fixtures as list_cl_fixtures, load_cl_context
+from deterministic_pick import generate_pick
+
 # TTL en segundos para el pool completo de picks. Los picks solo cambian
 # cuando cambia la lista de fixtures o el modelo — 5 min es razonable.
 _PICKS_TTL_SECONDS = 300
 _picks_cache: dict[str, tuple[float, list[dict]]] = {}
 
-# Permitir imports desde python/
-_PY_ROOT = Path(__file__).resolve().parent.parent
-if str(_PY_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PY_ROOT))
-
 PREDICTION_MAP = {"H": "home", "D": "draw", "A": "away"}
 
 
 def _logo_url(team_name: str) -> str | None:
-    """Wrapper lazy para team_logos.logo_url — importa solo cuando se necesita."""
+    """Wrapper resiliente — devuelve None si el mapeo falla por cualquier razón."""
     try:
-        from api.team_logos import logo_url
-        return logo_url(team_name)
+        return _team_logo_url(team_name)
     except Exception:
         return None
 
@@ -163,7 +176,6 @@ def get_teams_dict() -> dict[str, dict]:
     global _teams_cache
     if not _teams_cache:
         try:
-            from api.db import connect
             with connect() as cur:
                 cur.execute("SELECT name, country_id, entity_type FROM teams")
                 rows = cur.fetchall()
@@ -196,11 +208,8 @@ def infer_match_icon(home_team: str, away_team: str) -> str:
 
 @lru_cache(maxsize=16)
 def _load_league(slug: str):
-    from api.fast_loader import compute_elo
-    from api.openfootball_loader import load_history_of
     cfg = LEAGUES[slug]
     if slug == "champions-league":
-        from api.champions_league import load_cl_context
         matches, ratings = load_cl_context()
         return matches, ratings, cfg
     # openfootball como fuente primaria (GitHub, siempre reachable)
@@ -230,10 +239,6 @@ def _build_pick_for_match(
     except Exception as exc:
         print(f"[picks_service] no pude cargar liga {slug}: {exc}")
         return None
-
-    from api.fast_loader import compute_team_form
-    from api import predictor
-    from api.claude_narrative import generate_narrative, merge_narrative_into_pick
 
     home_form = compute_team_form(matches, home_team)
     away_form = compute_team_form(matches, away_team)
@@ -268,7 +273,6 @@ def _build_pick_for_match(
     poly_probs_dict: dict | None = None
     poly_meta: dict | None = None
     try:
-        from api.polymarket_live import find_match_probs
         poly_pick = find_match_probs(home_team, away_team)
         if poly_pick:
             poly_probs_dict = {
@@ -293,7 +297,6 @@ def _build_pick_for_match(
     )
 
     # Pick determinista sobre el blend (más robusto que usar solo ML)
-    from deterministic_pick import generate_pick
     pick = generate_pick(
         home_team=home_team,
         away_team=away_team,
@@ -344,6 +347,21 @@ def _build_pick_for_match(
             "no recomendación de apuesta."
         )
 
+    # Mercados secundarios via Poisson (OU 1.5/2.5/3.5 + DC 1X/X2/12).
+    # Falla silenciosa si la forma no tiene goles — devuelve None y el pick
+    # queda con `markets=None` (frontend ya maneja ausencia).
+    poisson_markets: dict | None = None
+    try:
+        poisson_markets = build_market_outcomes(
+            home_form=home_form,
+            away_form=away_form,
+            home_team=home_team,
+            away_team=away_team,
+            one_x_two_probs=blended,
+        )
+    except Exception as exc:
+        print(f"[picks_service] poisson markets falló para {home_team}-{away_team}: {exc}")
+
     result = {
         "id": str(uuid4()),
         "match": f"{home_team} vs {away_team}",
@@ -355,6 +373,7 @@ def _build_pick_for_match(
         "league": cfg.name,
         "leagueSlug": slug,
         "kickoff": "2026-04-19T16:30:00Z",
+        "market": "ML",  # mercado del pick principal — siempre 1X2 hoy
         "prediction": PREDICTION_MAP.get(prediction_code, "home"),
         "confidence": int(round(confidence_pct)),
         "mlProb": {
@@ -390,6 +409,7 @@ def _build_pick_for_match(
         "marketVerified": market_verified,
         "polyMeta": poly_meta,
         "allOutcomes": pick["all_outcomes"],  # para parlay builder
+        "markets": poisson_markets,           # OU + DC vía Poisson
     }
 
     # Claude narrativa solo si el pick tiene línea real y supera umbral (ahorra costo)
@@ -430,8 +450,6 @@ def get_todays_picks(league_slug: str | None = None) -> list[dict]:
 
 
 def _compute_picks(league_slug: str | None = None) -> list[dict]:
-    from api.openfootball_loader import load_fixtures_of
-
     slugs = [league_slug] if league_slug and league_slug in LEAGUES else list(LEAGUES.keys())
     picks: list[dict] = []
 
@@ -444,11 +462,11 @@ def _compute_picks(league_slug: str | None = None) -> list[dict]:
     for i, slug in enumerate(slugs):
         matchups: list[tuple[str, str, str, str, dict | None]] = []
         if slug == "champions-league":
-            # CL solo se activa si tenemos fuente verificada (API key externa).
-            # No inventamos fixtures — si no hay feed, se omite la liga.
-            from api.champions_league import list_fixtures
-            for cl in list_fixtures():
-                matchups.append((cl.home, cl.away, cl.date, cl.time, None))
+            try:
+                for cl in list_cl_fixtures():
+                    matchups.append((cl.home, cl.away, cl.date, cl.time, None))
+            except Exception as e:
+                print(f"[picks_service] Error cargando fixtures de CL: {e}")
         else:
             league_fixtures = [f for f in fixtures if f.get("leagueSlug") == slug]
             # Limitamos a próximos 7 días para mantener el pool relevante
