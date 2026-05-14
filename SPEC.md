@@ -187,6 +187,43 @@ Style:         Fintech premium — no soccer clichés
 
 ---
 
+## Parlays (AI-generated, paid plans only)
+
+Parlays are **not** user-built. The user does not pick legs manually. The system generates the parlay using picks that have already been analyzed by the three-layer engine + Claude. Available **only to Pro/VIP**; Free tier sees a locked teaser.
+
+### Flow
+
+1. **Risk selection** — before generating, ask the user which risk profile they want. Each profile maps to a per-leg odds range:
+
+   | Profile         | Per-leg odds | Notes                                          |
+   | --------------- | ------------ | ---------------------------------------------- |
+   | Seguro          | 1.10 – 1.30  | High-confidence favorites, low variance        |
+   | Moderado        | 1.30 – 1.60  | Mix of favorites + value picks                 |
+   | Arriesgado      | 1.60 – 2.00  | Underdog leans, divergence-driven edges        |
+   | Muy arriesgado  | 2.00+        | Long-shot combos, max upside                   |
+
+2. **Target odds** — user inputs the final parlay odds they want (e.g. 4.50). The system multiplies candidate legs from the chosen risk band until the product approximates the target.
+
+3. **Leg selection** — only picks the engine has already generated qualify. Constraints:
+   - Each leg's per-leg odds must fall inside the selected profile's band
+   - No two legs from the same match
+   - Prefer legs with highest confidence inside the band
+   - Stop when `Π(legs) ≈ target` (within ±5%)
+
+4. **Output** — show the assembled parlay with:
+   - Each leg (match, market, pick, per-leg odds, confidence)
+   - Combined odds (JetBrains Mono)
+   - Combined confidence (product of leg confidences)
+   - Claude-generated rationale: why these legs together, what's the shared edge, main risks
+
+### Rules
+
+- Never combine legs the engine didn't analyze — no manual user legs
+- If the target odds can't be reached inside the chosen risk band, show the closest assembled parlay and explain the gap
+- Locked for Free tier: show structure + combined odds, blur legs and rationale
+
+---
+
 ## Claude API System Prompt (use in backend)
 
 ```

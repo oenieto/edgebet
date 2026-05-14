@@ -1,0 +1,7 @@
+node_modules
+.next
+.git
+.env
+.DS_Store
+python/venv
+python/__pycache__

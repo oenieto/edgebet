@@ -17,7 +17,7 @@ import random
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from uuid import uuid4
@@ -38,6 +38,11 @@ from api.fast_loader import compute_elo, compute_team_form
 from api.team_logos import logo_url as _team_logo_url
 from api.polymarket_live import find_match_probs
 from api.poisson_markets import build_market_outcomes
+from api.odds_provider import (
+    fetch_league_odds,
+    find_odds_for_match,
+    is_configured as odds_is_configured,
+)
 from api.champions_league import list_fixtures as list_cl_fixtures, load_cl_context
 from deterministic_pick import generate_pick
 
@@ -65,6 +70,7 @@ class LeagueConfig:
     fd_code: str
     seasons: tuple[str, ...]
     featured: tuple[tuple[str, str], ...]
+    logo: str | None = None
 
 
 LEAGUES: dict[str, LeagueConfig] = {
@@ -74,6 +80,7 @@ LEAGUES: dict[str, LeagueConfig] = {
         fd_code="E0",
         seasons=("2425", "2324"),
         featured=(("Man City", "Arsenal"), ("Liverpool", "Chelsea")),
+        logo="https://a.espncdn.com/i/leaguelogos/soccer/500/23.png",
     ),
     "la-liga": LeagueConfig(
         slug="la-liga",
@@ -81,6 +88,7 @@ LEAGUES: dict[str, LeagueConfig] = {
         fd_code="SP1",
         seasons=("2425", "2324"),
         featured=(("Real Madrid", "Barcelona"), ("Atletico Madrid", "Sevilla")),
+        logo="https://a.espncdn.com/i/leaguelogos/soccer/500/15.png",
     ),
     "bundesliga": LeagueConfig(
         slug="bundesliga",
@@ -88,6 +96,7 @@ LEAGUES: dict[str, LeagueConfig] = {
         fd_code="D1",
         seasons=("2425", "2324"),
         featured=(("Bayern Munich", "Dortmund"), ("Leverkusen", "RB Leipzig")),
+        logo="https://a.espncdn.com/i/leaguelogos/soccer/500/10.png",
     ),
     "serie-a": LeagueConfig(
         slug="serie-a",
@@ -95,6 +104,7 @@ LEAGUES: dict[str, LeagueConfig] = {
         fd_code="I1",
         seasons=("2425", "2324"),
         featured=(("Inter", "Juventus"), ("Napoli", "Milan")),
+        logo="https://a.espncdn.com/i/leaguelogos/soccer/500/12.png",
     ),
     "ligue-1": LeagueConfig(
         slug="ligue-1",
@@ -102,6 +112,7 @@ LEAGUES: dict[str, LeagueConfig] = {
         fd_code="F1",
         seasons=("2425", "2324"),
         featured=(("Paris SG", "Marseille"), ("Monaco", "Lille")),
+        logo="https://a.espncdn.com/i/leaguelogos/soccer/500/9.png",
     ),
     "champions-league": LeagueConfig(
         slug="champions-league",
@@ -109,6 +120,15 @@ LEAGUES: dict[str, LeagueConfig] = {
         fd_code="UCL",  # marcador — no se baja de football-data.co.uk
         seasons=(),     # sin histórico propio; se cruzan las 5 ligas top
         featured=(),
+        logo="https://a.espncdn.com/i/leaguelogos/soccer/500/2.png",
+    ),
+    "liga-mx": LeagueConfig(
+        slug="liga-mx",
+        name="Liga MX",
+        fd_code="MX1",  # no existe en football-data.co.uk; usamos openfootball mx.1
+        seasons=("2425",),
+        featured=(("America", "Guadalajara"), ("Tigres UANL", "Monterrey")),
+        logo="https://a.espncdn.com/i/leaguelogos/soccer/500/13.png",
     ),
 }
 
@@ -218,6 +238,97 @@ def _load_league(slug: str):
     return matches, ratings, cfg
 
 
+def _attach_odds(outcome: dict, price: float, margin: float | None = None) -> None:
+    """Inyecta odds + market_prob + edge + EV en un outcome dado."""
+    if price is None or price <= 1.0:
+        return
+    if margin is None or margin <= 0:
+        market_prob = 1.0 / price  # asume margen ya incluido
+    else:
+        market_prob = (1.0 / price) / margin  # quita margen del par/triple
+    our_prob = outcome["our_prob_pct"] / 100.0
+    outcome["odds"] = round(float(price), 2)
+    outcome["market_prob_pct"] = round(market_prob * 100, 2)
+    outcome["edge_pp"] = round((our_prob - market_prob) * 100, 2)
+    outcome["ev_pct"] = round((our_prob * price - 1.0) * 100, 2)
+
+
+def _apply_real_odds_to_markets(markets: dict, odds_entry: dict | None) -> dict:
+    """
+    Inyecta cuotas reales (y EV/edge derivados) en cada outcome de cada mercado.
+
+    Coverage:
+      - OU goles totales: empareja línea (1.5/2.5/3.5/...) con `totals_by_line`.
+      - DC (1X/X2/12): cuotas derivadas matemáticamente de h2h.
+      - Spreads (handicaps): empareja línea con `spreads_by_line`.
+      - BTTS / team_totals: solo si el tier paga additional markets — sino
+        quedan info-only con nuestra prob Poisson.
+
+    Outcomes sin odds reales quedan con `odds=None` y el frontend muestra
+    solo `our_prob_pct`.
+    """
+    if not odds_entry or not markets:
+        return markets
+
+    totals_by_line: dict = odds_entry.get("totals_by_line") or {}
+    spreads_by_line: dict = odds_entry.get("spreads_by_line") or {}
+    dc_odds: dict | None = odds_entry.get("double_chance")
+
+    # OU — key "over_2_5" → line "2.5"
+    for outcome in markets.get("ou_outcomes", []):
+        key = outcome["outcome"]
+        parts = key.split("_")
+        if len(parts) < 3 or parts[0] not in ("over", "under"):
+            continue
+        side = parts[0]
+        try:
+            line = f"{float(parts[1] + '.' + parts[2]):.1f}"
+        except ValueError:
+            continue
+        line_entry = totals_by_line.get(line)
+        if not line_entry or "over" not in line_entry or "under" not in line_entry:
+            continue
+        price = line_entry.get(side)
+        margin = 1.0 / line_entry["over"] + 1.0 / line_entry["under"]
+        _attach_odds(outcome, price, margin)
+
+    # DC — usa cuotas derivadas (sin margen — ya viene con el del h2h)
+    if dc_odds:
+        for outcome in markets.get("dc_outcomes", []):
+            price = dc_odds.get(outcome["outcome"])
+            _attach_odds(outcome, price)
+
+    # Spreads — key "home_-1.5" / "away_-1.5" donde line_key siempre va desde
+    # la perspectiva del home (igual que spreads_by_line). Para el outcome del
+    # away, leemos el campo "away" de la misma entrada — representa "away
+    # gana el handicap inverso" matemáticamente.
+    for outcome in markets.get("spread_outcomes", []):
+        key = outcome["outcome"]
+        if "_" not in key:
+            continue
+        side, line_key = key.split("_", 1)
+        if side not in ("home", "away"):
+            continue
+        line_entry = spreads_by_line.get(line_key)
+        if not line_entry or "home" not in line_entry or "away" not in line_entry:
+            continue
+        price = line_entry.get(side)
+        margin = 1.0 / line_entry["home"] + 1.0 / line_entry["away"]
+        _attach_odds(outcome, price, margin)
+
+    # BTTS / team_totals: si el provider devuelve esos mercados (tier paid)
+    # los emparejamos. En tier free quedan informativos con prob Poisson.
+    btts_yes = odds_entry.get("btts_yes")
+    btts_no = odds_entry.get("btts_no")
+    if btts_yes and btts_no:
+        margin_btts = 1.0 / btts_yes + 1.0 / btts_no
+        for outcome in markets.get("btts_outcomes", []):
+            price = btts_yes if outcome["outcome"] == "yes" else btts_no
+            _attach_odds(outcome, price, margin_btts)
+
+    return markets
+
+
 def _sources_agree_flag(ml: dict, bk: dict, poly: dict | None) -> bool:
     ml_fav = max(ml, key=ml.get)
     bk_fav = max(bk, key=bk.get)
@@ -243,20 +354,38 @@ def _build_pick_for_match(
     home_form = compute_team_form(matches, home_team)
     away_form = compute_team_form(matches, away_team)
 
-    # Bookmaker: reales si vienen en el fixture; si no, sintéticas
+    # Bookmaker: prioridad 1) CSV fixture (B365), 2) The Odds API live, 3) sintéticas.
     bookmaker: tuple[dict, dict] | None = None
+    bookmaker_source = "synthetic"
     if fixture_row:
         bookmaker = _real_bookmaker_from_fixture(fixture_row)
+        if bookmaker is not None:
+            bookmaker_source = "bet365"
+
+    if bookmaker is None and odds_is_configured():
+        try:
+            entry = find_odds_for_match(home_team, away_team, slug)
+            if entry:
+                h = entry["h2h"].get("home")
+                d = entry["h2h"].get("draw")
+                a = entry["h2h"].get("away")
+                if h and d and a and h > 1.01 and d > 1.01 and a > 1.01:
+                    inv = [1 / h, 1 / d, 1 / a]
+                    total = sum(inv)
+                    probs = {"home": inv[0] / total, "draw": inv[1] / total, "away": inv[2] / total}
+                    odds_dict = {"H": round(h, 2), "D": round(d, 2), "A": round(a, 2)}
+                    bookmaker = (probs, odds_dict)
+                    bookmaker_source = entry.get("bookmaker") or "the-odds-api"
+        except Exception as exc:
+            print(f"[picks_service] odds API h2h falló para {home_team}-{away_team}: {exc}")
 
     elo_probs_preview = predictor.baseline_elo_probs(
         ratings.get(home_team, 1500.0), ratings.get(away_team, 1500.0)
     )
     if bookmaker is None:
         bk_probs, bk_odds = _synth_bookmaker_odds(elo_probs_preview, seed=seed)
-        bookmaker_source = "synthetic"
     else:
         bk_probs, bk_odds = bookmaker
-        bookmaker_source = "bet365"
 
     # ML probs (ensemble o ELO fallback)
     ml_probs, ml_source = predictor.predict_ml_probs(
@@ -313,7 +442,7 @@ def _build_pick_for_match(
     # la capa ML (ensemble) diverge de la ELO-perturbada por diseño y fabrica
     # edges absurdos (>100% EV). En ese caso el pick es solo predicción del
     # modelo, no recomendación de apuesta.
-    market_verified = bookmaker_source == "bet365"
+    market_verified = bookmaker_source != "synthetic"
     if market_verified:
         edge_pp = pick["edge_pp"]
         ev_pct = pick["ev_pct"]
@@ -362,6 +491,16 @@ def _build_pick_for_match(
     except Exception as exc:
         print(f"[picks_service] poisson markets falló para {home_team}-{away_team}: {exc}")
 
+    # Si hay cuotas reales en The Odds API, inyectamos odds + EV en cada outcome
+    # OU/DC. Sin API key, esto es no-op y los outcomes quedan informativos.
+    if poisson_markets and odds_is_configured():
+        try:
+            odds_entry = find_odds_for_match(home_team, away_team, slug)
+            if odds_entry:
+                poisson_markets = _apply_real_odds_to_markets(poisson_markets, odds_entry)
+        except Exception as exc:
+            print(f"[picks_service] aplicar odds reales falló para {home_team}-{away_team}: {exc}")
+
     result = {
         "id": str(uuid4()),
         "match": f"{home_team} vs {away_team}",
@@ -371,6 +510,7 @@ def _build_pick_for_match(
         "homeLogo": _logo_url(home_team),
         "awayLogo": _logo_url(away_team),
         "league": cfg.name,
+        "leagueLogo": cfg.logo,
         "leagueSlug": slug,
         "kickoff": "2026-04-19T16:30:00Z",
         "market": "ML",  # mercado del pick principal — siempre 1X2 hoy
@@ -476,6 +616,36 @@ def _compute_picks(league_slug: str | None = None) -> list[dict]:
                     row.get("Date", ""), row.get("Time", ""),
                     row,
                 ))
+            # Fallback 1: si openfootball no tiene fixtures (p.ej. Liga MX 2025-26
+            # aún no publicado), usamos The Odds API events que ya viene con
+            # cuotas reales adjuntas — pick principal se beneficia automáticamente.
+            if not matchups and odds_is_configured():
+                try:
+                    for entry in fetch_league_odds(slug)[:10]:
+                        ko = entry.get("kickoff", "")
+                        try:
+                            dt = datetime.fromisoformat(ko.replace("Z", "+00:00"))
+                        except ValueError:
+                            continue
+                        matchups.append((
+                            entry["home_team"], entry["away_team"],
+                            dt.strftime("%d/%m/%Y"), dt.strftime("%H:%M"),
+                            None,
+                        ))
+                except Exception as exc:
+                    print(f"[picks_service] odds API fixtures fallback falló para {slug}: {exc}")
+
+            # Fallback 2: matchups `featured` de la config — último recurso si
+            # ni openfootball ni The Odds API tienen fixtures para esta liga.
+            if not matchups and LEAGUES[slug].featured:
+                synth_dt = now_utc + timedelta(days=7)
+                for fh, fa in LEAGUES[slug].featured:
+                    matchups.append((
+                        fh, fa,
+                        synth_dt.strftime("%d/%m/%Y"),
+                        synth_dt.strftime("%H:%M"),
+                        None,
+                    ))
 
         for j, match_info in enumerate(matchups):
             home, away, date_str, time_str, row = match_info
@@ -513,6 +683,6 @@ def _compute_picks(league_slug: str | None = None) -> list[dict]:
 
 def get_leagues() -> list[dict]:
     return [
-        {"slug": cfg.slug, "name": cfg.name, "code": cfg.fd_code}
+        {"slug": cfg.slug, "name": cfg.name, "code": cfg.fd_code, "logo": cfg.logo}
         for cfg in LEAGUES.values()
     ]

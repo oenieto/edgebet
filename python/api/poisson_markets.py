@@ -41,8 +41,11 @@ MAX_GOALS_PER_TEAM = 10
 GoalLine = Literal[1.5, 2.5, 3.5]
 
 
+MarketKey = Literal["OU", "DC", "BTTS", "TEAM_TOTALS", "SPREAD", "ML"]
+
+
 class MarketOutcome(TypedDict):
-    market: Literal["OU", "DC"]
+    market: MarketKey
     outcome: str
     label: str
     our_prob_pct: float
@@ -133,7 +136,7 @@ _OU_LABEL = {
 
 def _evaluate_outcome(
     outcome: str,
-    market: Literal["OU", "DC"],
+    market: MarketKey,
     label: str,
     our_prob: float,
     market_prob: float | None,
@@ -156,6 +159,55 @@ def _evaluate_outcome(
     }
 
 
+def _team_total_probs(lam: float) -> dict[str, float]:
+    """P(team scores >= N+0.5) para varios totals individuales por equipo."""
+    cum = [_poisson_pmf(k, lam) for k in range(MAX_GOALS_PER_TEAM + 1)]
+    over_0_5 = 1.0 - cum[0]
+    over_1_5 = 1.0 - cum[0] - cum[1]
+    over_2_5 = 1.0 - cum[0] - cum[1] - cum[2]
+    return {
+        "over_0_5": max(0.0, over_0_5),
+        "under_0_5": min(1.0, cum[0]),
+        "over_1_5": max(0.0, over_1_5),
+        "under_1_5": min(1.0, cum[0] + cum[1]),
+        "over_2_5": max(0.0, over_2_5),
+        "under_2_5": min(1.0, cum[0] + cum[1] + cum[2]),
+    }
+
+
+def _btts_probs(lam_home: float, lam_away: float) -> dict[str, float]:
+    """P(BTTS=Yes) = P(home>=1) * P(away>=1) bajo independencia Poisson."""
+    p_h_scores = 1.0 - math.exp(-lam_home)
+    p_a_scores = 1.0 - math.exp(-lam_away)
+    btts_yes = p_h_scores * p_a_scores
+    btts_yes = max(0.02, min(0.98, btts_yes))
+    return {"yes": btts_yes, "no": 1.0 - btts_yes}
+
+
+SPREAD_LINES = (-2.5, -1.5, -0.5, 0.5, 1.5, 2.5)
+
+
+def _spread_probs(matrix: list[list[float]]) -> dict[str, dict[str, float]]:
+    """
+    Calcula P(home cubre handicap line) y P(away cubre opuesto) para varias
+    líneas de Asian Handicap. Para handicap -1.5 home necesita ganar por 2+,
+    etc. Convención: el `line_key` se firma desde la perspectiva del home
+    ("-1.5" = local con -1.5, "+1.5" = local con +1.5).
+    """
+    result: dict[str, dict[str, float]] = {}
+    for line in SPREAD_LINES:
+        # P(home cubre handicap `line`): home_goals + line > away_goals
+        p_home = 0.0
+        for i in range(MAX_GOALS_PER_TEAM + 1):
+            for j in range(MAX_GOALS_PER_TEAM + 1):
+                if (i + line) > j:
+                    p_home += matrix[i][j]
+        p_away = 1.0 - p_home  # complemento (ignoramos push exacto, line .5 evita ties)
+        key = f"{line:+.1f}"
+        result[key] = {"home": p_home, "away": p_away}
+    return result
+
+
 def build_market_outcomes(
     home_form: dict,
     away_form: dict,
@@ -164,19 +216,19 @@ def build_market_outcomes(
     one_x_two_probs: dict | None = None,
 ) -> dict:
     """
-    Genera probabilidades para mercados secundarios (OU 1.5/2.5/3.5 y DC).
+    Genera probabilidades para mercados secundarios derivados de Poisson:
+      - OU goles totales (1.5, 2.5, 3.5)
+      - Doble oportunidad (1X, X2, 12) — derivada del blend 1X2 si está disponible
+      - BTTS (Yes/No)
+      - Team totals (home over 0.5/1.5/2.5, away over 0.5/1.5/2.5)
 
-    Si `one_x_two_probs` se provee (probs blendeadas H/D/A del modelo
-    principal), las probs DC se derivan de ahí — más coherentes que las del
-    Poisson puro, porque incluyen señal de mercado y ML. Las probs OU
-    siempre vienen del Poisson (no hay otra fuente).
+    Todas las probs vienen del mismo modelo Poisson para que sean coherentes
+    entre sí (P(BTTS) y P(over 1.5) por ejemplo no se contradigan).
     """
     lam_home, lam_away = _expected_goals(home_form, away_form)
     matrix = _score_matrix(lam_home, lam_away)
     probs = _outcome_probs(matrix)
 
-    # Doble oportunidad: si tenemos el blend H/D/A, lo usamos. Si no,
-    # caemos al Poisson puro.
     if one_x_two_probs:
         h = float(one_x_two_probs.get("home", probs["home"]))
         d = float(one_x_two_probs.get("draw", probs["draw"]))
@@ -195,16 +247,48 @@ def build_market_outcomes(
         for key in ("over_1_5", "under_1_5", "over_2_5", "under_2_5", "over_3_5", "under_3_5")
     ]
     dc_outcomes = [
-        _evaluate_outcome(
-            "1X", "DC", f"{home_team} o Empate", dc["1X"], None, None,
-        ),
-        _evaluate_outcome(
-            "X2", "DC", f"Empate o {away_team}", dc["X2"], None, None,
-        ),
-        _evaluate_outcome(
-            "12", "DC", f"{home_team} o {away_team}", dc["12"], None, None,
-        ),
+        _evaluate_outcome("1X", "DC", f"{home_team} o Empate", dc["1X"], None, None),
+        _evaluate_outcome("X2", "DC", f"Empate o {away_team}", dc["X2"], None, None),
+        _evaluate_outcome("12", "DC", f"{home_team} o {away_team}", dc["12"], None, None),
     ]
+
+    btts = _btts_probs(lam_home, lam_away)
+    btts_outcomes = [
+        _evaluate_outcome("yes", "BTTS", "Ambos anotan: Sí", btts["yes"], None, None),
+        _evaluate_outcome("no", "BTTS", "Ambos anotan: No", btts["no"], None, None),
+    ]
+
+    home_team_totals = _team_total_probs(lam_home)
+    away_team_totals = _team_total_probs(lam_away)
+    team_totals_outcomes = [
+        _evaluate_outcome(
+            f"home_{k}", "TEAM_TOTALS",
+            f"{home_team} {_team_total_label(k)}",
+            home_team_totals[k], None, None,
+        )
+        for k in ("over_0_5", "over_1_5", "over_2_5", "under_0_5", "under_1_5", "under_2_5")
+    ] + [
+        _evaluate_outcome(
+            f"away_{k}", "TEAM_TOTALS",
+            f"{away_team} {_team_total_label(k)}",
+            away_team_totals[k], None, None,
+        )
+        for k in ("over_0_5", "over_1_5", "over_2_5", "under_0_5", "under_1_5", "under_2_5")
+    ]
+
+    spread_probs = _spread_probs(matrix)
+    spread_outcomes: list[MarketOutcome] = []
+    for line_key, sides in spread_probs.items():
+        spread_outcomes.append(_evaluate_outcome(
+            f"home_{line_key}", "SPREAD",
+            f"{home_team} {line_key}",
+            sides["home"], None, None,
+        ))
+        spread_outcomes.append(_evaluate_outcome(
+            f"away_{line_key}", "SPREAD",
+            f"{away_team} {_invert_line(line_key)}",
+            sides["away"], None, None,
+        ))
 
     return {
         "lambda_home": round(lam_home, 3),
@@ -212,8 +296,25 @@ def build_market_outcomes(
         "expected_total_goals": round(lam_home + lam_away, 2),
         "ou_outcomes": ou_outcomes,
         "dc_outcomes": dc_outcomes,
+        "btts_outcomes": btts_outcomes,
+        "team_totals_outcomes": team_totals_outcomes,
+        "spread_outcomes": spread_outcomes,
         "raw_probs": {k: round(v, 4) for k, v in probs.items()},
     }
+
+
+def _invert_line(line_key: str) -> str:
+    """'-1.5' → '+1.5', '+0.5' → '-0.5'"""
+    sign = "+" if line_key.startswith("-") else "-"
+    return f"{sign}{line_key[1:]}"
+
+
+def _team_total_label(key: str) -> str:
+    parts = key.split("_")
+    side = parts[0]  # over / under
+    line = f"{parts[1]}.{parts[2]}"
+    side_word = "más de" if side == "over" else "menos de"
+    return f"{side_word} {line} goles"
 
 
 def best_secondary_market_pick(

@@ -31,6 +31,54 @@ import requests
 from api.db import connect
 
 API_BASE = "https://api.the-odds-api.com/v4"
+
+# Tier del Odds API. Free: solo h2h/spreads/totals. Starter+: añadimos mercados
+# adicionales (alternate_totals, btts, double_chance, draw_no_bet, team_totals).
+# Cambiar via env `EDGEBET_ODDS_TIER=free|starter|pro`.
+TIER_MARKETS = {
+    "free": "h2h,spreads,totals",
+    "starter": "h2h,spreads,totals,alternate_totals,btts,double_chance,draw_no_bet,team_totals",
+    "pro": "h2h,spreads,totals,alternate_totals,alternate_spreads,btts,double_chance,draw_no_bet,team_totals,team_totals_alternate",
+}
+
+
+def _markets_for_tier() -> str:
+    tier = (os.environ.get("EDGEBET_ODDS_TIER") or "free").lower()
+    return TIER_MARKETS.get(tier, TIER_MARKETS["free"])
+
+
+# Normalización de nombres del Odds API a nuestras formas canónicas.
+# El Odds API usa "Pumas" sin UNAM, "Club America" en lugar de "America", etc.
+# Mantener sincronizado con `_NAME_OVERRIDES` en openfootball_loader.py.
+_ODDS_API_TEAM_OVERRIDES = {
+    # Liga MX
+    "Pumas": "Pumas UNAM",
+    "Pumas UNAM": "Pumas UNAM",
+    "Club America": "America",
+    "America": "America",
+    "Club Necaxa": "Necaxa",
+    "Necaxa": "Necaxa",
+    "Tigres": "Tigres UANL",
+    "Tigres UANL": "Tigres UANL",
+    "Club Leon": "Leon",
+    "Leon": "Leon",
+    "FC Juarez": "Juarez",
+    "Juarez": "Juarez",
+    "Queretaro FC": "Queretaro",
+    "Queretaro": "Queretaro",
+    "Guadalajara Chivas": "Guadalajara",
+    "Atlas FC": "Atlas",
+    "Mazatlan FC": "Mazatlan",
+    "Atletico San Luis": "Atletico San Luis",
+}
+
+
+def _normalize_odds_team(name: str) -> str:
+    if not name:
+        return name
+    return _ODDS_API_TEAM_OVERRIDES.get(name, name)
+
+
 SPORT_KEY_BY_LEAGUE = {
     "premier-league": "soccer_epl",
     "la-liga": "soccer_spain_la_liga",
@@ -38,6 +86,7 @@ SPORT_KEY_BY_LEAGUE = {
     "serie-a": "soccer_italy_serie_a",
     "ligue-1": "soccer_france_ligue_one",
     "champions-league": "soccer_uefa_champs_league",
+    "liga-mx": "soccer_mexico_ligamx",
 }
 
 # Bookmakers preferidos — orden de prioridad para extraer odds canónicos.
@@ -128,6 +177,121 @@ def _extract_totals(bookmaker_block: dict, line: float = 2.5) -> tuple[float | N
     return over, under
 
 
+def _extract_all_totals(bookmaker_block: dict) -> dict[str, dict[str, float]]:
+    """
+    Extrae TODAS las líneas de totals que devuelva el bookmaker.
+    Retorna dict {"1.5": {"over": 1.20, "under": 4.50}, "2.5": {...}, ...}.
+    """
+    totals = next((m for m in bookmaker_block.get("markets", []) if m.get("key") == "totals"), None)
+    if not totals:
+        return {}
+    lines: dict[str, dict[str, float]] = {}
+    for o in totals.get("outcomes", []):
+        point = o.get("point")
+        if point is None:
+            continue
+        key = f"{float(point):.1f}"
+        name = (o.get("name") or "").lower()
+        price = o.get("price")
+        if price is None:
+            continue
+        lines.setdefault(key, {})
+        if name == "over":
+            lines[key]["over"] = float(price)
+        elif name == "under":
+            lines[key]["under"] = float(price)
+    return {k: v for k, v in lines.items() if "over" in v and "under" in v}
+
+
+def _extract_spreads(bookmaker_block: dict) -> dict[str, dict[str, float]]:
+    """
+    Extrae handicaps (spreads) por punto. Retorna dict por línea:
+    {"-1.5": {"home": 3.20, "away": 1.36}, "+1.5": {...}, ...}
+    El "home" siempre lleva el handicap mostrado; "away" recibe el opuesto
+    automáticamente (lo da el provider en outcomes separados).
+    """
+    spreads = next((m for m in bookmaker_block.get("markets", []) if m.get("key") == "spreads"), None)
+    if not spreads:
+        return {}
+    home_lower = bookmaker_block.get("_home_lower", "")
+    lines: dict[str, dict[str, float]] = {}
+    for o in spreads.get("outcomes", []):
+        point = o.get("point")
+        if point is None:
+            continue
+        name = (o.get("name") or "").lower()
+        price = o.get("price")
+        if price is None:
+            continue
+        # Usar el punto desde la perspectiva del home — si este outcome es del
+        # home, el point ya lo expresa así. Si es del away, le damos vuelta.
+        is_home = name == home_lower
+        line_key = f"{float(point):+.1f}" if is_home else f"{-float(point):+.1f}"
+        lines.setdefault(line_key, {})
+        if is_home:
+            lines[line_key]["home"] = float(price)
+        else:
+            lines[line_key]["away"] = float(price)
+    return {k: v for k, v in lines.items() if "home" in v and "away" in v}
+
+
+def _aggregate_totals_across_books(bookmakers: list[dict]) -> dict[str, dict[str, float]]:
+    """
+    Junta todas las líneas de totals que ofrece CADA bookmaker, quedándose
+    con la MEJOR cuota para el apostador (mayor odds) en over y under
+    por separado. Esto saca el máximo provecho del tier free porque cada
+    casa ofrece líneas distintas (algunas dan 1.5, otras 2.5, otras 3.5).
+    """
+    best: dict[str, dict[str, float]] = {}
+    for bk in bookmakers:
+        lines = _extract_all_totals(bk)
+        for line_key, prices in lines.items():
+            entry = best.setdefault(line_key, {})
+            for side in ("over", "under"):
+                if side in prices and prices[side] > entry.get(side, 0):
+                    entry[side] = prices[side]
+                    entry[f"{side}_bookmaker"] = bk.get("key")
+    return best
+
+
+def _aggregate_spreads_across_books(bookmakers: list[dict], home_lower: str) -> dict[str, dict[str, float]]:
+    """Misma idea que totals — best price por handicap line desde el set de bookies."""
+    best: dict[str, dict[str, float]] = {}
+    for bk in bookmakers:
+        bk["_home_lower"] = home_lower
+        lines = _extract_spreads(bk)
+        for line_key, prices in lines.items():
+            entry = best.setdefault(line_key, {})
+            for side in ("home", "away"):
+                if side in prices and prices[side] > entry.get(side, 0):
+                    entry[side] = prices[side]
+                    entry[f"{side}_bookmaker"] = bk.get("key")
+    return best
+
+
+def derive_double_chance_odds(
+    h: float | None, d: float | None, a: float | None
+) -> dict[str, float] | None:
+    """
+    Deriva cuotas DC desde h2h aplicando el margen del propio bookmaker.
+
+    Matemáticamente: p_implied(1X) = 1/h + 1/d. La cuota DC justa = 1 / p_implied(1X).
+    Esto preserva el margen total del bookmaker en h2h, lo cual es una
+    aproximación cercana a cómo realmente cotizan DC (margen DC suele ser
+    ~1-2pp menor, pero la diferencia para EV es marginal).
+    """
+    if h is None or d is None or a is None:
+        return None
+    if h <= 1.0 or d <= 1.0 or a <= 1.0:
+        return None
+    inv_h, inv_d, inv_a = 1.0 / h, 1.0 / d, 1.0 / a
+    return {
+        "1X": round(1.0 / (inv_h + inv_d), 2),
+        "X2": round(1.0 / (inv_d + inv_a), 2),
+        "12": round(1.0 / (inv_h + inv_a), 2),
+    }
+
+
 def fetch_league_odds(league_slug: str) -> list[dict]:
     """
     Devuelve lista de fixtures con odds normalizados por bookmaker.
@@ -149,7 +313,7 @@ def fetch_league_odds(league_slug: str) -> list[dict]:
     params = {
         "apiKey": _api_key(),
         "regions": "eu,uk,us",
-        "markets": "h2h,totals",
+        "markets": _markets_for_tier(),
         "oddsFormat": "decimal",
     }
     try:
@@ -174,12 +338,15 @@ def fetch_league_odds(league_slug: str) -> list[dict]:
 
     out: list[dict] = []
     for game in data:
-        home_team = game.get("home_team", "")
-        away_team = game.get("away_team", "")
+        home_team = _normalize_odds_team(game.get("home_team", ""))
+        away_team = _normalize_odds_team(game.get("away_team", ""))
+        home_lower = (game.get("home_team", "") or "").lower()
         kickoff = game.get("commence_time", "")
         bookmakers = game.get("bookmakers", [])
 
-        # Buscamos el primer bookmaker preferido con mercados completos.
+        # Bookmaker primario — el primero preferido con h2h disponible.
+        # Lo usamos como referencia para h2h "canónico" (necesario para DC
+        # derivado y el pick ML). Los demás mercados se agregan cross-book.
         chosen = None
         for pref in PREFERRED_BOOKMAKERS:
             chosen = next((b for b in bookmakers if b.get("key") == pref), None)
@@ -190,10 +357,19 @@ def fetch_league_odds(league_slug: str) -> list[dict]:
         if chosen is None:
             continue
 
-        chosen["_home_lower"] = home_team.lower()
-        chosen["_away_lower"] = away_team.lower()
+        chosen["_home_lower"] = home_lower
+        chosen["_away_lower"] = (game.get("away_team", "") or "").lower()
         h, d, a = _extract_h2h(chosen)
-        over, under = _extract_totals(chosen, 2.5)
+        dc_derived = derive_double_chance_odds(h, d, a)
+
+        # Agregaciones cross-bookmaker: best price disponible para cada línea.
+        # Esto saca máximo provecho del free tier porque cada casa expone
+        # líneas distintas de totals/spreads.
+        totals_by_line = _aggregate_totals_across_books(bookmakers)
+        spreads_by_line = _aggregate_spreads_across_books(bookmakers, home_lower)
+
+        # Mantenemos totals_2_5 por retro-compatibilidad con persist_snapshots
+        totals_2_5 = totals_by_line.get("2.5", {})
 
         out.append({
             "home_team": home_team,
@@ -201,7 +377,10 @@ def fetch_league_odds(league_slug: str) -> list[dict]:
             "kickoff": kickoff,
             "bookmaker": chosen.get("key"),
             "h2h": {"home": h, "draw": d, "away": a},
-            "totals_2_5": {"over": over, "under": under},
+            "totals_2_5": {"over": totals_2_5.get("over"), "under": totals_2_5.get("under")},
+            "totals_by_line": totals_by_line,
+            "spreads_by_line": spreads_by_line,
+            "double_chance": dc_derived,
             "last_update": chosen.get("last_update"),
         })
 

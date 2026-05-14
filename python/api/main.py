@@ -56,25 +56,55 @@ class ProbabilityTriplet(BaseModel):
     away: float
 
 
+class MarketOutcomeOut(BaseModel):
+    market: Literal["OU", "DC", "BTTS", "TEAM_TOTALS", "SPREAD", "ML"]
+    outcome: str
+    label: str
+    our_prob_pct: float
+    market_prob_pct: float | None = None
+    odds: float | None = None
+    edge_pp: float | None = None
+    ev_pct: float | None = None
+
+
+class MarketsDataOut(BaseModel):
+    lambda_home: float
+    lambda_away: float
+    expected_total_goals: float
+    ou_outcomes: list[MarketOutcomeOut]
+    dc_outcomes: list[MarketOutcomeOut]
+    btts_outcomes: list[MarketOutcomeOut] = []
+    team_totals_outcomes: list[MarketOutcomeOut] = []
+    spread_outcomes: list[MarketOutcomeOut] = []
+
+
 class Pick(BaseModel):
     id: str
     match: str
     homeTeam: str
     awayTeam: str
+    homeLogo: str | None = None
+    awayLogo: str | None = None
     league: str
+    leagueLogo: str | None = None
     leagueSlug: str | None = None
+    market: Literal["ML", "OU", "DC"] = "ML"
     kickoff: str
-    prediction: Literal["home", "draw", "away"]
+    prediction: str  # home/draw/away/1X/X2/12/over_X_5/under_X_5
     confidence: int
     mlProb: ProbabilityTriplet
     polyProb: ProbabilityTriplet | None = None
     bkProb: ProbabilityTriplet
+    blendedProb: ProbabilityTriplet | None = None
     aiReasoning: str
     suggestedStake: float
     status: Literal["free", "premium", "vip"]
     odds: float | None = None
     edgePp: float | None = None
     evPct: float | None = None
+    sourcesAgree: bool | None = None
+    marketVerified: bool | None = None
+    markets: MarketsDataOut | None = None
 
 
 class HealthResponse(BaseModel):

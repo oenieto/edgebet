@@ -34,10 +34,41 @@
       "Bash(echo \"started pid $!\")",
       "Bash(curl -s -f http://localhost:8000/health)",
       "Bash(python3 -c ' *)",
-      "Bash(git -C /Users/oenieto/Documents/Edgebet status)"
+      "Bash(git -C /Users/oenieto/Documents/Edgebet status)",
+      "Bash(npm pkg *)",
+      "Bash(/Users/oenieto/.bun/bin/bun add *)",
+      "Bash(/Users/oenieto/.bun/bin/bun run *)",
+      "Bash(.venv/bin/python -c \"from api.main import app; print\\('OK FastAPI app loaded — routes:', len\\(app.routes\\)\\)\")",
+      "Bash(/Users/oenieto/.bun/bin/bun install *)",
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(lsof -iTCP:8000 -sTCP:LISTEN)",
+      "Bash(lsof -iTCP:3000 -sTCP:LISTEN)",
+      "Bash(curl -s -i http://localhost:8000/health)",
+      "Bash(curl -s -i -X POST http://localhost:8000/auth/login -H \"Content-Type: application/json\" -d '{\"email\":\"emiliano.nietog@gmail.com\",\"password\":\"test\"}')",
+      "Bash(ps -p 20450 -o command=)",
+      "Bash(kill 20450)",
+      "Bash(.venv/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000)",
+      "Bash(echo \"Started PID $!\")",
+      "Bash(kill 29701)",
+      "Bash(lsof -i :3000 -sTCP:LISTEN)",
+      "WebFetch(domain:www.betmines.com)",
+      "Bash(python3 -c \"import json,sys; data=json.load\\(sys.stdin\\); p=data[0] if data else {}; print\\('keys:', sorted\\(p.keys\\(\\)\\)\\); print\\(\\); print\\('markets:', json.dumps\\(p.get\\('markets'\\), indent=2, default=str\\)[:600]\\); print\\('allOutcomes:', json.dumps\\(p.get\\('allOutcomes'\\), indent=2, default=str\\)[:400]\\)\")",
+      "Bash(lsof -i :8000 -sTCP:LISTEN)",
+      "Bash(docker compose *)",
+      "Bash(python3 -c \"import json,sys; data=json.load\\(sys.stdin\\); p=data[0] if data else {}; print\\('keys:', sorted\\(p.keys\\(\\)\\)\\); print\\(\\); print\\('market:', p.get\\('market'\\)\\); print\\('markets keys:', list\\(\\(p.get\\('markets'\\) or {}\\).keys\\(\\)\\)\\); print\\(\\); ou = \\(p.get\\('markets'\\) or {}\\).get\\('ou_outcomes', []\\); print\\('ou sample:', json.dumps\\(ou[:2], indent=2, default=str\\)\\); dc = \\(p.get\\('markets'\\) or {}\\).get\\('dc_outcomes', []\\); print\\('dc sample:', json.dumps\\(dc[:2], indent=2, default=str\\)\\)\")",
+      "Bash(git check-ignore *)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); mx=[s for s in d if 'mexic' in s['key'].lower\\(\\) or 'mexic' in s.get\\('title',''\\).lower\\(\\) or 'liga mx' in s.get\\('title',''\\).lower\\(\\)]; print\\('Liga MX sport keys:', json.dumps\\(mx, indent=2\\)\\)\")",
+      "Bash(docker exec *)",
+      "Bash(python3 -c \"import json; print\\(len\\(json.load\\(open\\('/tmp/picks.json'\\)\\)\\)\\)\")",
+      "Bash(ps -p 11313 -o pid,etime,command)",
+      "Bash(python3 -c \"import json; d=json.load\\(open\\('/tmp/picks.json'\\)\\); print\\('count:', len\\(d\\)\\); print\\('sample:', d[0]['homeTeam'], 'vs', d[0]['awayTeam']\\) if d else print\\('EMPTY'\\)\")",
+      "Bash(python3 -c \"import json; d=json.load\\(open\\('/tmp/picks2.json'\\)\\); print\\('count:', len\\(d\\)\\)\")",
+      "Bash(kill 11313)",
+      "Bash(echo \"started, pid=$!\")"
     ],
     "additionalDirectories": [
-      "/Users/oenieto/Documents/Edgebet/python/python/models"
+      "/Users/oenieto/Documents/Edgebet/python/python/models",
+      "/Users/oenieto/Documents/Edgebet/python/data/cache"
     ]
   }
 }

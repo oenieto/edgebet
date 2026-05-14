@@ -23,9 +23,11 @@ import PerformanceChart from '@/components/performance/PerformanceChart';
 import OddsSparkline from '@/components/picks/OddsSparkline';
 import TeamLogo from '@/components/picks/TeamLogo';
 import PicksEmptyState from '@/components/picks/PicksEmptyState';
+import MarketChips from '@/components/picks/MarketChips';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUserStore } from '@/lib/store/userStore';
 import { getLeagues, getMetrics, getPicksToday } from '@/lib/api/picks';
+import { selectSafePick, type SelectedMarket } from '@/lib/picks/safe-pick';
 import type { LeagueInfo, Metrics, Pick } from '@/types';
 
 export default function DashboardPage() {
@@ -305,6 +307,24 @@ export default function DashboardPage() {
     </div>
   );
 }
+
+const MARKET_DISPLAY_LABEL: Record<SelectedMarket, string | null> = {
+  ML: null,
+  DC: '2da oport.',
+  OU: 'Goles',
+  BTTS: 'BTTS',
+  SPREAD: 'Hándicap',
+  TEAM_TOTALS: 'Goles equipo',
+};
+
+const MARKET_DISPLAY_COLOR: Record<SelectedMarket, string | null> = {
+  ML: null,
+  DC: 'text-purple-300 border-purple-400/30 bg-purple-400/10',
+  OU: 'text-sky-300 border-sky-400/30 bg-sky-400/10',
+  BTTS: 'text-pink-300 border-pink-400/30 bg-pink-400/10',
+  SPREAD: 'text-orange-300 border-orange-400/30 bg-orange-400/10',
+  TEAM_TOTALS: 'text-teal-300 border-teal-400/30 bg-teal-400/10',
+};
 
 function shouldLock(status: Pick['status'] | undefined, userTier: 'free' | 'pro' | 'vip'): boolean {
   if (!status) return false;
@@ -667,35 +687,16 @@ function PicksTable({
               const isExpanded = expandedId === p.id;
               const dateObj = new Date(p.kickoff);
               const timeStr = isNaN(dateObj.getTime()) ? '' : dateObj.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-              
-              const predLabel = (() => {
-                const pred = p.prediction as string;
-                if (pred === 'home') return `${p.homeTeam} gana`;
-                if (pred === 'away') return `${p.awayTeam} gana`;
-                if (pred === 'draw') return 'Empate';
-                if (pred === '1X') return `${p.homeTeam} o Empate`;
-                if (pred === 'X2') return `${p.awayTeam} o Empate`;
-                if (pred === '12') return `${p.homeTeam} o ${p.awayTeam}`;
-                if (pred === 'over_1_5') return 'Más de 1.5 goles';
-                if (pred === 'under_1_5') return 'Menos de 1.5 goles';
-                if (pred === 'over_2_5') return 'Más de 2.5 goles';
-                if (pred === 'under_2_5') return 'Menos de 2.5 goles';
-                if (pred === 'over_3_5') return 'Más de 3.5 goles';
-                if (pred === 'under_3_5') return 'Menos de 3.5 goles';
-                return pred;
-              })();
 
-              const marketLabel = (() => {
-                const m = p.market;
-                if (m === 'OU') return 'Goles';
-                if (m === 'DC') return '2da Oport.';
-                return null;
-              })();
-              const marketColor = p.market === 'OU'
-                ? 'text-blue-400 border-blue-400/30 bg-blue-400/10'
-                : p.market === 'DC'
-                  ? 'text-purple-400 border-purple-400/30 bg-purple-400/10'
-                  : null;
+              // El pick mostrado se ajusta al perfil de riesgo del usuario:
+              // conservative → DC/Under más alto · balanced → 1X2 motor · aggressive → EV+/Over
+              const userRiskProfile = profile?.risk_profile ?? 'balanced';
+              const safePick = selectSafePick(p, userRiskProfile);
+              const predLabel = safePick.label;
+              const safeProbability = Math.round(safePick.probability);
+
+              const marketLabel = MARKET_DISPLAY_LABEL[safePick.market];
+              const marketColor = MARKET_DISPLAY_COLOR[safePick.market];
 
               // Kelly real por pick: backend devuelve suggestedStake como % del bankroll.
               // Se multiplica por el bankroll actual del usuario → cantidad en USD reactiva.
@@ -744,7 +745,12 @@ function PicksTable({
                   </div>
                 </td>
                 <td className="px-3 py-3 hidden md:table-cell">
-                  <span className="font-sans text-[12px] text-zinc-400">{p.league}</span>
+                  <div className="flex items-center gap-2">
+                    {p.leagueLogo && (
+                      <img src={p.leagueLogo} alt={p.league} className="w-5 h-5 object-contain" />
+                    )}
+                    <span className="font-sans text-[12px] text-zinc-400">{p.league}</span>
+                  </div>
                 </td>
                 <td className="px-3 py-3 text-right">
                   {locked ? (
@@ -762,7 +768,7 @@ function PicksTable({
                 </td>
                 <td className="px-3 py-3 text-right hidden sm:table-cell">
                   <span className="font-mono text-[12.5px] font-bold text-white">
-                    {p.confidence}%
+                    {safeProbability}%
                   </span>
                 </td>
                 <td className="px-3 py-3 text-right hidden md:table-cell">
@@ -834,11 +840,14 @@ function PicksTable({
                         transition={{ duration: 0.22, ease: 'easeOut' }}
                         style={{ overflow: 'hidden' }}
                       >
-                        <div className="py-4 flex items-start gap-3">
-                          <Sparkles className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
-                          <div className="font-sans text-[13px] text-zinc-300 leading-relaxed max-w-4xl">
-                            <span className="text-white font-semibold mr-1">Análisis IA:</span>
-                            {p.aiReasoning}
+                        <div className="py-5 space-y-5">
+                          <MarketChips pick={p} profile={userRiskProfile} />
+                          <div className="flex items-start gap-3 pt-1 border-t border-white/[0.04]">
+                            <Sparkles className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
+                            <div className="font-sans text-[13px] text-zinc-300 leading-relaxed max-w-4xl">
+                              <span className="text-white font-semibold mr-1">Análisis IA:</span>
+                              {p.aiReasoning}
+                            </div>
                           </div>
                         </div>
                       </motion.div>

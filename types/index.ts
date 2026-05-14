@@ -15,6 +15,7 @@ export interface Pick {
   homeLogo?: string | null;
   awayLogo?: string | null;
   league: string;
+  leagueLogo?: string | null;
   leagueSlug?: string | null;
   market?: PickMarket;
   kickoff: string;
@@ -37,6 +38,7 @@ export interface Pick {
   marketVerified?: boolean;
   polyMeta?: Record<string, any>;
   allOutcomes?: Array<{ name: string; probability: number }>;
+  markets?: MarketsData | null;
   combos?: {
     safe: string;
     medium: string;
@@ -48,6 +50,7 @@ export interface LeagueInfo {
   slug: string;
   name: string;
   code: string;
+  logo?: string;
 }
 
 export interface Metrics {
@@ -143,7 +146,14 @@ export interface PerformanceData {
   summary: PerformanceSummary;
 }
 
-// Parlay types
+// Parlay types — AI-generated only (Pro/VIP). User does not build legs manually.
+export type ParlayRiskProfile = 'seguro' | 'moderado' | 'arriesgado' | 'muy_arriesgado';
+
+export interface ParlayRiskBand {
+  min: number;
+  max: number; // Infinity for the top tier
+}
+
 export interface ParlayLeg {
   pickId: string;
   match: string;
@@ -156,13 +166,14 @@ export interface ParlayLeg {
 }
 
 export interface Parlay {
-  id: string;
   legs: ParlayLeg[];
   combinedOdds: number;
-  stake: number;
-  potentialPayout: number;
-  correlationPenalty: number;
-  tier: 'safe' | 'medium' | 'risky';
+  combinedConfidence: number; // product of leg confidences (0-100)
+  targetOdds: number;
+  riskProfile: ParlayRiskProfile;
+  gapPct: number; // (combinedOdds - targetOdds) / targetOdds, signed
+  withinTolerance: boolean; // |gapPct| <= 0.05
+  rationale: string;
 }
 
 // Notification types
@@ -188,9 +199,11 @@ export interface PlayerPropLine {
   odds_under?: number;
 }
 
-// Market outcome types (from Poisson)
+// Market outcome types (from Poisson + Odds API)
+export type MarketKey = 'OU' | 'DC' | 'BTTS' | 'TEAM_TOTALS' | 'SPREAD' | 'ML';
+
 export interface MarketOutcome {
-  market: 'OU' | 'DC';
+  market: MarketKey;
   outcome: string;
   label: string;
   our_prob_pct: number;
@@ -206,5 +219,8 @@ export interface MarketsData {
   expected_total_goals: number;
   ou_outcomes: MarketOutcome[];
   dc_outcomes: MarketOutcome[];
+  btts_outcomes?: MarketOutcome[];
+  team_totals_outcomes?: MarketOutcome[];
+  spread_outcomes?: MarketOutcome[];
 }
 

@@ -36,6 +36,14 @@ export default function Onboarding() {
     );
   };
 
+  const toggleAllLeagues = () => {
+    if (favorites.length === LEAGUES.length) {
+      setFavorites([]);
+    } else {
+      setFavorites(LEAGUES.map(l => l.code));
+    }
+  };
+
   const handleFinish = async () => {
     const currentToken = token || window.localStorage.getItem('edgebet.auth.token');
     if (!user || !currentToken) return;
@@ -285,6 +293,15 @@ export default function Onboarding() {
                   </button>
                 );
               })}
+            </div>
+
+            <div className="mt-6 flex justify-center">
+              <button
+                onClick={toggleAllLeagues}
+                className="text-sm text-amber-500 hover:text-amber-400 font-medium transition-colors border border-amber-500/20 bg-amber-500/5 px-4 py-2 rounded-full hover:bg-amber-500/10"
+              >
+                {favorites.length === LEAGUES.length ? 'Deseleccionar todas' : 'Seleccionar todas'}
+              </button>
             </div>
 
             <div className="mt-12 flex justify-between">

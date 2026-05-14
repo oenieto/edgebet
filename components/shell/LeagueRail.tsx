@@ -31,7 +31,7 @@ export default function LeagueRail({
   const sortedLeagues = [...leagues].sort((a, b) => a.name.localeCompare(b.name));
 
   return (
-    <aside className="bg-[#111114] border border-white/[0.06] rounded-xl sticky top-[80px] overflow-y-auto scrollbar-hide flex flex-col h-[calc(100vh-104px)]">
+    <aside className="bg-[#111114] border border-white/[0.06] rounded-xl sticky top-[80px] overflow-y-auto custom-scrollbar flex flex-col h-[calc(100vh-104px)]">
       {/* Pick del día — top feature */}
       <Link
         href="/dashboard/pick-del-dia"
@@ -114,7 +114,13 @@ export default function LeagueRail({
                 onClick={() => onSelect(lg.slug)}
                 label={lg.name}
                 count={count}
-                icon={<span className="font-mono text-[9px] text-zinc-500">{lg.code}</span>}
+                icon={
+                  lg.logo ? (
+                    <img src={lg.logo} alt={lg.code} className="w-3.5 h-3.5 object-contain" />
+                  ) : (
+                    <span className="font-mono text-[9px] text-zinc-500">{lg.code}</span>
+                  )
+                }
               />
             );
           })}
@@ -171,13 +177,13 @@ export default function LeagueRail({
           <ul className="flex flex-col gap-0.5">
             <RailButton
               active={false}
-              onClick={() => {}}
+              href="/onboarding"
               icon={<Wallet className="w-3.5 h-3.5 text-emerald-400" />}
               label="Gestión de Bank"
             />
             <RailButton
               active={false}
-              onClick={() => {}}
+              href="/dashboard/profile"
               icon={<Settings className="w-3.5 h-3.5 text-zinc-400" />}
               label="Configuración"
             />
@@ -197,13 +203,15 @@ export default function LeagueRail({
 function RailButton({
   active,
   onClick,
+  href,
   icon,
   label,
   count,
   accent = 'neutral',
 }: {
   active: boolean;
-  onClick: () => void;
+  onClick?: () => void;
+  href?: string;
   icon?: React.ReactNode;
   label: string;
   count?: number;
@@ -212,29 +220,39 @@ function RailButton({
   const activeClass =
     accent === 'amber' ? 'bg-amber-500/15 text-amber-300' : 'bg-white/10 text-white';
 
+  const content = (
+    <>
+      <span className="flex items-center gap-2 font-sans text-[12.5px] font-medium truncate">
+        {icon}
+        <span className="truncate">{label}</span>
+      </span>
+      {count != null && (
+        <span
+          className={`font-mono text-[10px] shrink-0 px-1.5 py-0.5 rounded ${
+            active ? 'bg-white/10' : 'bg-white/5 text-zinc-500'
+          }`}
+        >
+          {count}
+        </span>
+      )}
+    </>
+  );
+
+  const className = `w-full flex items-center justify-between gap-2 px-2 h-[32px] rounded-md text-left transition-colors ${
+    active ? activeClass : 'text-zinc-300 hover:bg-white/5 hover:text-white'
+  }`;
+
   return (
     <li>
-      <button
-        type="button"
-        onClick={onClick}
-        className={`w-full flex items-center justify-between gap-2 px-2 h-[32px] rounded-md text-left transition-colors ${
-          active ? activeClass : 'text-zinc-300 hover:bg-white/5 hover:text-white'
-        }`}
-      >
-        <span className="flex items-center gap-2 font-sans text-[12.5px] font-medium truncate">
-          {icon}
-          <span className="truncate">{label}</span>
-        </span>
-        {count != null && (
-          <span
-            className={`font-mono text-[10px] shrink-0 px-1.5 py-0.5 rounded ${
-              active ? 'bg-white/10' : 'bg-white/5 text-zinc-500'
-            }`}
-          >
-            {count}
-          </span>
-        )}
-      </button>
+      {href ? (
+        <Link href={href} className={className}>
+          {content}
+        </Link>
+      ) : (
+        <button type="button" onClick={onClick} className={className}>
+          {content}
+        </button>
+      )}
     </li>
   );
 }

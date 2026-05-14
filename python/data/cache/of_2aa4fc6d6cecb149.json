@@ -5562,6 +5562,14 @@
       "team1": "Girona FC",
       "team2": "RCD Mallorca",
       "score": {
+        "ht": [
+          0,
+          1
+        ],
+        "ft": [
+          0,
+          1
+        ]
       }
     },
     {
@@ -5571,6 +5579,14 @@
       "team1": "Villarreal CF",
       "team2": "Levante UD",
       "score": {
+        "ht": [
+          1,
+          0
+        ],
+        "ft": [
+          5,
+          1
+        ]
       }
     },
     {
@@ -5580,6 +5596,14 @@
       "team1": "Valencia CF",
       "team2": "Club Atlético de Madrid",
       "score": {
+        "ht": [
+          0,
+          0
+        ],
+        "ft": [
+          0,
+          2
+        ]
       }
     },
     {
@@ -5589,6 +5613,14 @@
       "team1": "Deportivo Alavés",
       "team2": "Athletic Club",
       "score": {
+        "ht": [
+          1,
+          0
+        ],
+        "ft": [
+          2,
+          4
+        ]
       }
     },
     {
@@ -5598,6 +5630,14 @@
       "team1": "CA Osasuna",
       "team2": "FC Barcelona",
       "score": {
+        "ht": [
+          0,
+          0
+        ],
+        "ft": [
+          1,
+          2
+        ]
       }
     },
     {
@@ -5607,6 +5647,14 @@
       "team1": "RC Celta de Vigo",
       "team2": "Elche CF",
       "score": {
+        "ht": [
+          2,
+          0
+        ],
+        "ft": [
+          3,
+          1
+        ]
       }
     },
     {
@@ -5616,6 +5664,14 @@
       "team1": "Getafe CF",
       "team2": "Rayo Vallecano de Madrid",
       "score": {
+        "ht": [
+          0,
+          1
+        ],
+        "ft": [
+          0,
+          2
+        ]
       }
     },
     {
@@ -5625,6 +5681,14 @@
       "team1": "Real Betis Balompié",
       "team2": "Real Oviedo",
       "score": {
+        "ht": [
+          2,
+          0
+        ],
+        "ft": [
+          3,
+          0
+        ]
       }
     },
     {
@@ -5634,6 +5698,14 @@
       "team1": "RCD Espanyol de Barcelona",
       "team2": "Real Madrid CF",
       "score": {
+        "ht": [
+          0,
+          0
+        ],
+        "ft": [
+          0,
+          2
+        ]
       }
     },
     {
@@ -5643,6 +5715,14 @@
       "team1": "Sevilla FC",
       "team2": "Real Sociedad de Fútbol",
       "score": {
+        "ht": [
+          0,
+          0
+        ],
+        "ft": [
+          1,
+          0
+        ]
       }
     },
     {
@@ -5652,6 +5732,14 @@
       "team1": "Levante UD",
       "team2": "CA Osasuna",
       "score": {
+        "ht": [
+          2,
+          2
+        ],
+        "ft": [
+          3,
+          2
+        ]
       }
     },
     {
@@ -5661,6 +5749,14 @@
       "team1": "Elche CF",
       "team2": "Deportivo Alavés",
       "score": {
+        "ht": [
+          0,
+          0
+        ],
+        "ft": [
+          1,
+          1
+        ]
       }
     },
     {
@@ -5670,6 +5766,14 @@
       "team1": "Sevilla FC",
       "team2": "RCD Espanyol de Barcelona",
       "score": {
+        "ht": [
+          0,
+          0
+        ],
+        "ft": [
+          2,
+          1
+        ]
       }
     },
     {
@@ -5679,6 +5783,14 @@
       "team1": "Club Atlético de Madrid",
       "team2": "RC Celta de Vigo",
       "score": {
+        "ht": [
+          0,
+          0
+        ],
+        "ft": [
+          0,
+          1
+        ]
       }
     },
     {
@@ -5688,6 +5800,14 @@
       "team1": "Real Sociedad de Fútbol",
       "team2": "Real Betis Balompié",
       "score": {
+        "ht": [
+          0,
+          1
+        ],
+        "ft": [
+          2,
+          2
+        ]
       }
     },
     {
@@ -5697,6 +5817,14 @@
       "team1": "RCD Mallorca",
       "team2": "Villarreal CF",
       "score": {
+        "ht": [
+          1,
+          1
+        ],
+        "ft": [
+          1,
+          1
+        ]
       }
     },
     {
@@ -5706,6 +5834,14 @@
       "team1": "Athletic Club",
       "team2": "Valencia CF",
       "score": {
+        "ht": [
+          0,
+          0
+        ],
+        "ft": [
+          0,
+          1
+        ]
       }
     },
     {
@@ -5715,6 +5851,10 @@
       "team1": "Real Oviedo",
       "team2": "Getafe CF",
       "score": {
+        "ft": [
+          0,
+          0
+        ]
       }
     },
     {
@@ -5724,6 +5864,14 @@
       "team1": "FC Barcelona",
       "team2": "Real Madrid CF",
       "score": {
+        "ht": [
+          2,
+          0
+        ],
+        "ft": [
+          2,
+          0
+        ]
       }
     },
     {
@@ -5733,6 +5881,14 @@
       "team1": "Rayo Vallecano de Madrid",
       "team2": "Girona FC",
       "score": {
+        "ht": [
+          0,
+          0
+        ],
+        "ft": [
+          1,
+          1
+        ]
       }
     },
     {
@@ -5742,6 +5898,14 @@
       "team1": "RC Celta de Vigo",
       "team2": "Levante UD",
       "score": {
+        "ht": [
+          1,
+          1
+        ],
+        "ft": [
+          2,
+          3
+        ]
       }
     },
     {
@@ -5751,6 +5915,14 @@
       "team1": "Real Betis Balompié",
       "team2": "Elche CF",
       "score": {
+        "ht": [
+          1,
+          1
+        ],
+        "ft": [
+          2,
+          1
+        ]
       }
     },
     {
@@ -5760,6 +5932,14 @@
       "team1": "CA Osasuna",
       "team2": "Club Atlético de Madrid",
       "score": {
+        "ht": [
+          0,
+          1
+        ],
+        "ft": [
+          1,
+          2
+        ]
       }
     },
     {
@@ -5828,6 +6008,7 @@
     {
       "round": "Matchday 37",
       "date": "2026-05-17",
+      "time": "19:00",
       "team1": "Athletic Club",
       "team2": "RC Celta de Vigo",
       "score": {
@@ -5836,6 +6017,7 @@
     {
       "round": "Matchday 37",
       "date": "2026-05-17",
+      "time": "19:00",
       "team1": "Club Atlético de Madrid",
       "team2": "Girona FC",
       "score": {
@@ -5844,6 +6026,7 @@
     {
       "round": "Matchday 37",
       "date": "2026-05-17",
+      "time": "19:00",
       "team1": "FC Barcelona",
       "team2": "Real Betis Balompié",
       "score": {
@@ -5852,6 +6035,7 @@
     {
       "round": "Matchday 37",
       "date": "2026-05-17",
+      "time": "19:00",
       "team1": "Elche CF",
       "team2": "Getafe CF",
       "score": {
@@ -5860,6 +6044,7 @@
     {
       "round": "Matchday 37",
       "date": "2026-05-17",
+      "time": "19:00",
       "team1": "Levante UD",
       "team2": "RCD Mallorca",
       "score": {
@@ -5868,6 +6053,7 @@
     {
       "round": "Matchday 37",
       "date": "2026-05-17",
+      "time": "19:00",
       "team1": "Rayo Vallecano de Madrid",
       "team2": "Villarreal CF",
       "score": {
@@ -5876,6 +6062,7 @@
     {
       "round": "Matchday 37",
       "date": "2026-05-17",
+      "time": "19:00",
       "team1": "Real Sociedad de Fútbol",
       "team2": "Valencia CF",
       "score": {
@@ -5884,6 +6071,7 @@
     {
       "round": "Matchday 37",
       "date": "2026-05-17",
+      "time": "19:00",
       "team1": "Real Oviedo",
       "team2": "Deportivo Alavés",
       "score": {
@@ -5892,6 +6080,7 @@
     {
       "round": "Matchday 37",
       "date": "2026-05-17",
+      "time": "19:00",
       "team1": "CA Osasuna",
       "team2": "RCD Espanyol de Barcelona",
       "score": {
@@ -5900,6 +6089,7 @@
     {
       "round": "Matchday 37",
       "date": "2026-05-17",
+      "time": "19:00",
       "team1": "Sevilla FC",
       "team2": "Real Madrid CF",
       "score": {
@@ -5907,7 +6097,8 @@
     },
     {
       "round": "Matchday 38",
-      "date": "2026-05-24",
+      "date": "2026-05-23",
+      "time": "21:00",
       "team1": "Deportivo Alavés",
       "team2": "Rayo Vallecano de Madrid",
       "score": {
@@ -5915,7 +6106,8 @@
     },
     {
       "round": "Matchday 38",
-      "date": "2026-05-24",
+      "date": "2026-05-23",
+      "time": "21:00",
       "team1": "Real Betis Balompié",
       "team2": "Levante UD",
       "score": {
@@ -5923,7 +6115,8 @@
     },
     {
       "round": "Matchday 38",
-      "date": "2026-05-24",
+      "date": "2026-05-23",
+      "time": "21:00",
       "team1": "RC Celta de Vigo",
       "team2": "Sevilla FC",
       "score": {
@@ -5931,7 +6124,8 @@
     },
     {
       "round": "Matchday 38",
-      "date": "2026-05-24",
+      "date": "2026-05-23",
+      "time": "21:00",
       "team1": "RCD Espanyol de Barcelona",
       "team2": "Real Sociedad de Fútbol",
       "score": {
@@ -5939,7 +6133,8 @@
     },
     {
       "round": "Matchday 38",
-      "date": "2026-05-24",
+      "date": "2026-05-23",
+      "time": "21:00",
       "team1": "Getafe CF",
       "team2": "CA Osasuna",
       "score": {
@@ -5947,7 +6142,8 @@
     },
     {
       "round": "Matchday 38",
-      "date": "2026-05-24",
+      "date": "2026-05-23",
+      "time": "21:00",
       "team1": "RCD Mallorca",
       "team2": "Real Oviedo",
       "score": {
@@ -5955,9 +6151,28 @@
     },
     {
       "round": "Matchday 38",
-      "date": "2026-05-24",
+      "date": "2026-05-23",
+      "time": "21:00",
       "team1": "Real Madrid CF",
       "team2": "Athletic Club",
+      "score": {
+      }
+    },
+    {
+      "round": "Matchday 38",
+      "date": "2026-05-23",
+      "time": "21:00",
+      "team1": "Valencia CF",
+      "team2": "FC Barcelona",
+      "score": {
+      }
+    },
+    {
+      "round": "Matchday 38",
+      "date": "2026-05-23",
+      "time": "21:00",
+      "team1": "Girona FC",
+      "team2": "Elche CF",
       "score": {
       }
     },
@@ -5966,22 +6181,6 @@
       "date": "2026-05-24",
       "team1": "Villarreal CF",
       "team2": "Club Atlético de Madrid",
-      "score": {
-      }
-    },
-    {
-      "round": "Matchday 38",
-      "date": "2026-05-24",
-      "team1": "Valencia CF",
-      "team2": "FC Barcelona",
-      "score": {
-      }
-    },
-    {
-      "round": "Matchday 38",
-      "date": "2026-05-24",
-      "team1": "Girona FC",
-      "team2": "Elche CF",
       "score": {
       }
     }

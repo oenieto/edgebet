@@ -36,10 +36,12 @@ _SLUG_TO_OF: dict[str, str] = {
     "bundesliga": "de.1",
     "serie-a": "it.1",
     "ligue-1": "fr.1",
+    "liga-mx": "mx.1",
 }
 
 # Temporadas cubiertas: actual + una anterior (para tener suficiente histórico
-# para cómputo de ELO antes del matchday).
+# para cómputo de ELO antes del matchday). openfootball Liga MX solo tiene
+# 2024-25 publicado hoy; la carga gracefully ignora 404 en 2025-26.
 _SEASONS = ("2024-25", "2025-26")
 
 _mem: dict[str, tuple[float, dict]] = {}
@@ -197,6 +199,26 @@ _NAME_OVERRIDES: dict[str, str] = {
     "Montpellier HSC": "Montpellier",
     "FC Metz": "Metz",
     "Paris FC": "Paris FC",
+    # Liga MX
+    "CF América": "America",
+    "Club América": "America",
+    "Cruz Azul": "Cruz Azul",
+    "Deportivo Guadalajara": "Guadalajara",
+    "CF Monterrey": "Monterrey",
+    "CF Pachuca": "Pachuca",
+    "Club León": "Leon",
+    "UANL Tigres": "Tigres UANL",
+    "Pumas UNAM": "Pumas UNAM",
+    "Club Necaxa": "Necaxa",
+    "Santos Laguna": "Santos Laguna",
+    "Atlas Guadalajara": "Atlas",
+    "Atlético San Luis": "Atletico San Luis",
+    "Deportivo Toluca": "Toluca",
+    "Club Tijuana": "Tijuana",
+    "Mazatlán FC": "Mazatlan",
+    "Puebla FC": "Puebla",
+    "FC Juárez": "Juarez",
+    "Gallos Blancos": "Queretaro",
 }
 
 
