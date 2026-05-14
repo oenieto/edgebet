@@ -184,6 +184,17 @@ CREATE TABLE IF NOT EXISTS h2h_cache (
 -- ============================================================
 -- ODDS — historial e instantáneas de casas reales
 -- ============================================================
+CREATE TABLE IF NOT EXISTS odds_history (
+    id SERIAL PRIMARY KEY,
+    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    event_id TEXT NOT NULL,
+    bookmaker TEXT NOT NULL,
+    market TEXT NOT NULL,
+    odds_value REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_odds_history_event_id ON odds_history(event_id);
+CREATE INDEX IF NOT EXISTS idx_odds_history_timestamp ON odds_history(timestamp);
 CREATE TABLE IF NOT EXISTS odds_snapshots (
     id SERIAL PRIMARY KEY,
     fixture_id INTEGER REFERENCES fixtures(id) ON DELETE CASCADE,

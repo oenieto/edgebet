@@ -18,6 +18,11 @@ services:
       timeout: 3s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
   backend:
     build:
       context: ./python
@@ -32,9 +37,15 @@ services:
       - .env
     environment:
       - DATABASE_URL=postgresql://edgebet:edgebet@db:5432/edgebet
+      - REDIS_URL=redis://redis:6379/0
+      - STRIPE_SECRET_KEY=mock-key
+      - STRIPE_WEBHOOK_SECRET=mock-secret
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
 
   frontend:
     build:
