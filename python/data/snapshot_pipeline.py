@@ -1,89 +1,70 @@
+"""
+Edgebet — job de snapshot de cuotas.
+
+Usa el proveedor canónico `api.odds_provider` (single source of truth: lee
+EDGEBET_ODDS_API_KEY y cachea en disco). `fetch_league_odds()` ya persiste
+cada fixture con cuotas en `odds_snapshots`, así que este job solo orquesta el
+barrido por liga y, de paso, refresca la tabla `fixtures` para que settlement
+tenga partidos terminados que liquidar.
+
+Reemplaza al antiguo `OddsProvider` basado en Redis (eliminado en el overhaul):
+Redis no está desplegado y el cache en disco cubre el caso de uso del tier free.
+"""
 import logging
 from datetime import datetime
-from api.db import connect
-from data.odds_provider import OddsProvider
-import psycopg2.extras
+
+from api.odds_provider import SPORT_KEY_BY_LEAGUE, fetch_league_odds, is_configured
+from api.openfootball_loader import upsert_fixtures
 
 logger = logging.getLogger(__name__)
 
-SPORTS = [
-    "soccer_epl",
-    "soccer_spain_la_liga",
-    "soccer_italy_serie_a",
-    "soccer_germany_bundesliga",
-    "soccer_france_ligue_one",
-    "soccer_portugal_primeira_liga",
-    "soccer_uefa_champions_league",
-    "soccer_fifa_world_cup"
-]
 
-def run_snapshot():
+def run_snapshot() -> dict:
     """
-    Fetches the latest odds for the configured sports and stores them in the database.
+    Barre todas las ligas soportadas, persiste snapshots de cuotas y refresca
+    la tabla `fixtures`. Devuelve un resumen serializable.
     """
-    logger.info(f"Iniciando snapshot de cuotas a las {datetime.now()}")
-    provider = OddsProvider()
-    
-    all_odds_records = []
-    timestamp = datetime.now()
-    
-    for sport in SPORTS:
-        logger.info(f"Obteniendo cuotas para {sport}...")
-        data = provider.get_odds(sport)
-        
-        if not data:
-            logger.warning(f"No se obtuvieron datos para {sport}.")
+    logger.info("Iniciando snapshot de cuotas a las %s", datetime.now().isoformat())
+
+    if not is_configured():
+        logger.warning("EDGEBET_ODDS_API_KEY no configurada — se omite el snapshot de cuotas.")
+        fixtures_upserted = _refresh_fixtures()
+        return {"leagues": 0, "fixtures_with_odds": 0, "fixtures_upserted": fixtures_upserted}
+
+    leagues_done = 0
+    fixtures_with_odds = 0
+    for slug in SPORT_KEY_BY_LEAGUE:
+        try:
+            odds = fetch_league_odds(slug)  # persiste odds_snapshots internamente
+        except Exception as exc:
+            logger.warning("[snapshot] %s falló: %s", slug, exc)
             continue
-            
-        # Parse and prepare data for bulk insert
-        for event in data:
-            event_id = event.get('id')
-            bookmakers = event.get('bookmakers', [])
-            
-            for bookmaker in bookmakers:
-                bookmaker_name = bookmaker.get('key')
-                markets = bookmaker.get('markets', [])
-                
-                for market in markets:
-                    market_name = market.get('key')
-                    outcomes = market.get('outcomes', [])
-                    
-                    for outcome in outcomes:
-                        # Para simplificar, guardamos el nombre del outcome como parte del market
-                        # Ej: h2h_Arsenal, totals_Over_2.5
-                        outcome_name = outcome.get('name')
-                        price = outcome.get('price')
-                        
-                        full_market_name = f"{market_name}_{outcome_name}"
-                        
-                        all_odds_records.append((
-                            timestamp,
-                            event_id,
-                            bookmaker_name,
-                            full_market_name,
-                            price
-                        ))
-                        
-    if not all_odds_records:
-        logger.info("No hay nuevas cuotas para insertar.")
-        return
-        
-    # Bulk insert into odds_history
+        leagues_done += 1
+        fixtures_with_odds += len(odds)
+        logger.info("[snapshot] %s — %d fixtures con cuotas", slug, len(odds))
+
+    # Mantener `fixtures` al día tras cada sync para que settle_pending_picks()
+    # encuentre partidos status='finished'.
+    fixtures_upserted = _refresh_fixtures()
+
+    logger.info(
+        "Snapshot completo: %d ligas, %d fixtures con cuotas, %d fixtures upserted.",
+        leagues_done, fixtures_with_odds, fixtures_upserted,
+    )
+    return {
+        "leagues": leagues_done,
+        "fixtures_with_odds": fixtures_with_odds,
+        "fixtures_upserted": fixtures_upserted,
+    }
+
+
+def _refresh_fixtures() -> int:
     try:
-        with connect() as cur:
-            insert_query = """
-                INSERT INTO odds_history (timestamp, event_id, bookmaker, market, odds_value)
-                VALUES %s
-            """
-            psycopg2.extras.execute_values(
-                cur,
-                insert_query,
-                all_odds_records,
-                page_size=1000
-            )
-            logger.info(f"Se insertaron {len(all_odds_records)} registros en odds_history exitosamente.")
-    except Exception as e:
-        logger.error(f"Error al insertar en la base de datos: {e}")
+        return upsert_fixtures()
+    except Exception as exc:
+        logger.warning("[snapshot] upsert_fixtures falló: %s", exc)
+        return 0
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

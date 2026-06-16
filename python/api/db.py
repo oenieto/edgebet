@@ -48,19 +48,29 @@ SCHEMA_SQLITE = _pg_to_sqlite(SCHEMA_PG)
 # tienen las nuevas (role, market, xp_awarded, etc.). SQLite limita
 # ALTER TABLE a ADD COLUMN; suficiente para todos los nuevos campos.
 # ============================================================
-_INCREMENTAL_COLUMNS_SQLITE = [
+# (tabla, columna, declaración). Compartido entre SQLite y Postgres: la
+# declaración usa tipos que ambos aceptan (TEXT/INTEGER). DATETIME se traduce a
+# TIMESTAMP para Postgres en _ensure_columns_pg.
+_INCREMENTAL_COLUMNS = [
     ("users", "role", "TEXT NOT NULL DEFAULT 'user'"),
     ("users", "avatar_url", "TEXT"),
     ("user_bets", "market", "TEXT DEFAULT 'ML'"),
     ("user_bets", "xp_awarded", "INTEGER DEFAULT 0"),
     ("user_bets", "bookmaker", "TEXT"),
     ("user_bets", "settled_at", "DATETIME"),
+    # Soporte de torneos internacionales en fixtures (overhaul Phase 1.2 / 3.1).
+    ("fixtures", "tournament_phase", "TEXT"),
+    ("fixtures", "match_group", "TEXT"),
+    ("fixtures", "round_number", "INTEGER"),
 ]
+
+# Alias retro-compatible.
+_INCREMENTAL_COLUMNS_SQLITE = _INCREMENTAL_COLUMNS
 
 
 def _ensure_columns_sqlite(conn) -> None:
     cur = conn.cursor()
-    for table, col, decl in _INCREMENTAL_COLUMNS_SQLITE:
+    for table, col, decl in _INCREMENTAL_COLUMNS:
         try:
             cur.execute(f"PRAGMA table_info({table})")
             existing = {row[1] for row in cur.fetchall()}
@@ -71,6 +81,20 @@ def _ensure_columns_sqlite(conn) -> None:
             print(f"[db] no pude agregar {table}.{col}: {exc}")
 
 
+def _ensure_columns_pg(cur) -> None:
+    """Migración incremental idempotente para Postgres.
+
+    Postgres soporta `ADD COLUMN IF NOT EXISTS`, así que es seguro correrlo en
+    cada cold-start. DATETIME se mapea a TIMESTAMP.
+    """
+    for table, col, decl in _INCREMENTAL_COLUMNS:
+        pg_decl = decl.replace("DATETIME", "TIMESTAMP")
+        try:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {col} {pg_decl}")
+        except Exception as exc:
+            print(f"[db] (pg) no pude agregar {table}.{col}: {exc}")
+
+
 def init_db() -> None:
     global USE_SQLITE
     try:
@@ -78,6 +102,7 @@ def init_db() -> None:
             try:
                 with connect_pg() as cur:
                     cur.execute(SCHEMA_PG)
+                    _ensure_columns_pg(cur)
                     seed_teams(cur)
                     seed_ranks_pg(cur)
                     seed_achievements_pg(cur)

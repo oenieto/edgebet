@@ -42,21 +42,58 @@ class PredictorArtifacts:
     trained_at: str
 
 
+def _pick_ensemble_path() -> Optional[Path]:
+    """Elige el modelo a cargar con preferencia: calibrado > raw > legacy.
+
+    El modelo calibrado (isotónico) da probabilidades mejor ajustadas para EV.
+    Si no existe, cae al raw, y si tampoco, a los artefactos legacy
+    `ensemble_<ts>.pkl` (esquema previo al overhaul, sin sufijo).
+    """
+    calibrated = sorted(MODELS_DIR.glob("ensemble_calibrated_*.pkl"))
+    if calibrated:
+        return calibrated[-1]
+    raw = sorted(MODELS_DIR.glob("ensemble_raw_*.pkl"))
+    if raw:
+        return raw[-1]
+    # Legacy: excluir los que ya tienen sufijo calibrated/raw.
+    legacy = sorted(
+        p for p in MODELS_DIR.glob("ensemble_*.pkl")
+        if "_calibrated_" not in p.name and "_raw_" not in p.name
+    )
+    return legacy[-1] if legacy else None
+
+
+def _ts_from_ensemble(path: Path) -> str:
+    """Extrae el timestamp 'YYYYMMDD_HHMM' del nombre del artefacto."""
+    return (
+        path.stem
+        .replace("ensemble_calibrated_", "")
+        .replace("ensemble_raw_", "")
+        .replace("ensemble_", "")
+    )
+
+
 @lru_cache(maxsize=1)
 def _load_latest_artifacts() -> Optional[PredictorArtifacts]:
     """Carga el ensemble más reciente del disco. None si no hay artefactos."""
     if not MODELS_DIR.exists():
         return None
 
-    ensembles = sorted(MODELS_DIR.glob("ensemble_*.pkl"))
+    ensemble_path = _pick_ensemble_path()
     scalers = sorted(MODELS_DIR.glob("scaler_*.pkl"))
-    if not ensembles or not scalers:
+    if ensemble_path is None or not scalers:
         return None
 
+    ts = _ts_from_ensemble(ensemble_path)
+    # Emparejar el scaler por timestamp; si no hay match exacto, usar el más reciente.
+    scaler_path = MODELS_DIR / f"scaler_{ts}.pkl"
+    if not scaler_path.exists():
+        scaler_path = scalers[-1]
+
     try:
-        with open(ensembles[-1], "rb") as f:
+        with open(ensemble_path, "rb") as f:
             ensemble = pickle.load(f)
-        with open(scalers[-1], "rb") as f:
+        with open(scaler_path, "rb") as f:
             scaler = pickle.load(f)
     except Exception as exc:
         print(f"[predictor] no pude cargar artefactos: {exc}")
@@ -69,7 +106,6 @@ def _load_latest_artifacts() -> Optional[PredictorArtifacts]:
             line.strip() for line in feat_path.read_text().splitlines() if line.strip()
         ]
 
-    ts = ensembles[-1].stem.replace("ensemble_", "")
     return PredictorArtifacts(
         ensemble=ensemble,
         scaler=scaler,

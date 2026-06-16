@@ -112,6 +112,10 @@ CREATE TABLE IF NOT EXISTS fixtures (
     minute INTEGER,                       -- si live
     home_score INTEGER,
     away_score INTEGER,
+    -- Torneos internacionales (FIFA World Cup 2026 y futuros).
+    tournament_phase TEXT,                -- group_stage | round_of_32 | round_of_16 | quarter_final | semi_final | third_place | final
+    match_group TEXT,                     -- 'A'..'L' en fase de grupos; NULL en eliminatorias
+    round_number INTEGER,                 -- jornada dentro del grupo o nº de ronda eliminatoria
     last_synced TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -302,6 +306,51 @@ CREATE TABLE IF NOT EXISTS settlement_log (
     accuracy_pct REAL,
     notes TEXT
 );
+
+-- ============================================================
+-- PICKS PERSISTIDOS
+-- ============================================================
+CREATE TABLE IF NOT EXISTS picks (
+    id TEXT PRIMARY KEY,
+    match TEXT NOT NULL,
+    home_team TEXT NOT NULL,
+    away_team TEXT NOT NULL,
+    home_logo TEXT,
+    away_logo TEXT,
+    league TEXT NOT NULL,
+    league_logo TEXT,
+    league_slug TEXT,
+    market TEXT DEFAULT 'ML',
+    kickoff TIMESTAMP NOT NULL,
+    prediction TEXT NOT NULL,
+    confidence INTEGER NOT NULL,
+    ml_prob_home REAL NOT NULL,
+    ml_prob_draw REAL NOT NULL,
+    ml_prob_away REAL NOT NULL,
+    poly_prob_home REAL,
+    poly_prob_draw REAL,
+    poly_prob_away REAL,
+    bk_prob_home REAL NOT NULL,
+    bk_prob_draw REAL NOT NULL,
+    bk_prob_away REAL NOT NULL,
+    blended_prob_home REAL,
+    blended_prob_draw REAL,
+    blended_prob_away REAL,
+    ai_reasoning TEXT,
+    suggested_stake REAL NOT NULL,
+    status TEXT NOT NULL,
+    odds REAL,
+    edge_pp REAL,
+    ev_pct REAL,
+    sources_agree BOOLEAN,
+    market_verified BOOLEAN,
+    markets_json TEXT,
+    poly_meta_json TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_picks_kickoff ON picks(kickoff);
+CREATE INDEX IF NOT EXISTS idx_picks_league ON picks(league_slug);
 
 -- ============================================================
 -- PLAYER STATS (for player props)

@@ -90,7 +90,7 @@ def train_with_cv(X: pd.DataFrame, y: pd.Series) -> dict:
 def build_and_save_ensemble(X: pd.DataFrame, y: pd.Series, save_dir: str | None = None) -> tuple:
     if save_dir is None:
         save_dir = str(Path(__file__).resolve().parent)
-    """Build ensemble, evaluate on holdout, save to disk."""
+    """Build ensemble, calibrate it using validation set, evaluate on holdout, save to disk."""
     scaler = StandardScaler()
     ensemble = VotingClassifier(
         estimators=[
@@ -102,32 +102,71 @@ def build_and_save_ensemble(X: pd.DataFrame, y: pd.Series, save_dir: str | None 
         voting="soft", weights=[1, 1, 2],
     )
 
-    split_idx = int(len(X) * 0.8)
-    X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
-    y_train, y_test = y.iloc[:split_idx], y.iloc[split_idx:]
+    # 70% Train, 10% Calibration Validation, 20% Holdout Test
+    split_train = int(len(X) * 0.7)
+    split_val = int(len(X) * 0.8)
+
+    X_train = X.iloc[:split_train]
+    y_train = y.iloc[:split_train]
+
+    X_val = X.iloc[split_train:split_val]
+    y_val = y.iloc[split_train:split_val]
+
+    X_test = X.iloc[split_val:]
+    y_test = y.iloc[split_val:]
 
     X_train_s = scaler.fit_transform(X_train)
+    X_val_s = scaler.transform(X_val)
     X_test_s = scaler.transform(X_test)
+
     ensemble.fit(X_train_s, y_train)
 
-    preds = ensemble.predict(X_test_s)
-    proba = ensemble.predict_proba(X_test_s)
+    # Calibrar probabilities con el conjunto de validacion. Guardamos AMBOS
+    # modelos (raw + calibrado) para que el predictor pueda caer al raw si el
+    # calibrado falta o se corrompe.
+    calibrated = None
+    try:
+        import sys
+        # Permite import de api cuando se ejecuta pipeline.py desde /python
+        _PY_ROOT = Path(__file__).resolve().parent.parent
+        if str(_PY_ROOT) not in sys.path:
+            sys.path.insert(0, str(_PY_ROOT))
+        from api.calibration import calibrate_ensemble
+
+        calibrated = calibrate_ensemble(ensemble, X_val_s, y_val)
+        print("\n✓ Modelo de Ensemble calibrado con regresión isotónica.")
+    except Exception as exc:
+        print(f"\n⚠️ Falló la calibración, solo se guardará el ensemble raw: {exc}")
+
+    # Evaluar el modelo de producción (calibrado si existe, raw si no) en holdout.
+    eval_model = calibrated if calibrated is not None else ensemble
+    preds = eval_model.predict(X_test_s)
+    proba = eval_model.predict_proba(X_test_s)
     acc = accuracy_score(y_test, preds)
     ll = log_loss(y_test, proba)
-    print(f"\nEnsemble — Accuracy: {acc:.4f} | Log Loss: {ll:.4f}")
+    label = "Calibrado" if calibrated is not None else "Raw"
+    print(f"\nEnsemble {label} — Accuracy: {acc:.4f} | Log Loss: {ll:.4f}")
     print(classification_report(y_test, preds, target_names=["Away","Draw","Home"]))
 
     Path(save_dir).mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M")
-    with open(f"{save_dir}/ensemble_{ts}.pkl", "wb") as f:
+    with open(f"{save_dir}/ensemble_raw_{ts}.pkl", "wb") as f:
         pickle.dump(ensemble, f)
+    saved = [f"ensemble_raw_{ts}.pkl"]
+    if calibrated is not None:
+        with open(f"{save_dir}/ensemble_calibrated_{ts}.pkl", "wb") as f:
+            pickle.dump(calibrated, f)
+        saved.append(f"ensemble_calibrated_{ts}.pkl")
     with open(f"{save_dir}/scaler_{ts}.pkl", "wb") as f:
         pickle.dump(scaler, f)
+    saved.append(f"scaler_{ts}.pkl")
     # Persistimos el orden exacto de columnas para que el predictor lo replique
     with open(f"{save_dir}/feature_columns.txt", "w") as f:
         f.write("\n".join(list(X.columns)))
-    print(f"Saved: ensemble_{ts}.pkl + scaler_{ts}.pkl + feature_columns.txt")
-    return ensemble, scaler
+    saved.append("feature_columns.txt")
+    print("Saved: " + " + ".join(saved))
+    # Devolvemos el modelo de producción (lo que cargará el predictor por default).
+    return eval_model, scaler
 
 
 class WalkForwardBacktest:

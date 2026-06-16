@@ -259,7 +259,13 @@ def _match_to_row(m: dict) -> dict | None:
         "AwayTeam": away,
     }
 
-    score = (m.get("score") or {}).get("ft")
+    score_val = m.get("score")
+    score = None
+    if isinstance(score_val, dict):
+        score = score_val.get("ft")
+    elif isinstance(score_val, list):
+        score = score_val
+
     if isinstance(score, list) and len(score) == 2 and all(s is not None for s in score):
         fthg, ftag = int(score[0]), int(score[1])
         row["FTHG"] = fthg
@@ -298,6 +304,83 @@ def load_history_of(slug: str) -> list[dict]:
     return rows
 
 
+def _fixture_db_tuple(slug: str, row: dict, finished: bool) -> tuple | None:
+    """Convierte una fila del loader al tuple que upserta en la tabla `fixtures`.
+
+    external_id es determinista (of:<slug>:<fecha>:<home>_vs_<away>) para que el
+    upsert sea idempotente: el mismo partido siempre apunta a la misma fila.
+    """
+    date_obj = row.get("DateObj")
+    home = row.get("HomeTeam")
+    away = row.get("AwayTeam")
+    if not (isinstance(date_obj, datetime) and home and away):
+        return None
+
+    date_str = date_obj.strftime("%Y-%m-%d")
+    time_str = (row.get("Time") or "").strip()
+    kickoff = f"{date_str} {time_str}".strip()
+    external_id = f"of:{slug}:{date_str}:{home}_vs_{away}".lower()
+    status = "finished" if finished else "scheduled"
+    home_score = int(row["FTHG"]) if finished and row.get("FTHG") != "" and row.get("FTHG") is not None else None
+    away_score = int(row["FTAG"]) if finished and row.get("FTAG") != "" and row.get("FTAG") is not None else None
+    return (external_id, slug, home, away, kickoff, status, home_score, away_score)
+
+
+def upsert_fixtures(slugs: list[str] | None = None) -> int:
+    """Persiste fixtures (jugados + próximos) en la tabla `fixtures`.
+
+    Idempotente vía `external_id` como clave de conflicto: corre cuantas veces
+    haga falta sin duplicar. Los partidos terminados quedan con status='finished'
+    y marcador, que es lo que `settle_pending_picks()` necesita para liquidar.
+
+    Devuelve el número de filas upserted.
+    """
+    # Import diferido: db importa schema, evitamos costo de import al cargar el módulo.
+    from api.db import connect
+
+    slugs = slugs or list(_SLUG_TO_OF.keys())
+    rows: list[tuple] = []
+    for slug in slugs:
+        for r in load_history_of(slug):
+            t = _fixture_db_tuple(slug, r, finished=True)
+            if t:
+                rows.append(t)
+        for r in load_fixtures_of([slug]):
+            t = _fixture_db_tuple(slug, r, finished=False)
+            if t:
+                rows.append(t)
+
+    if not rows:
+        return 0
+
+    upserted = 0
+    try:
+        with connect() as cur:
+            for row in rows:
+                cur.execute(
+                    """
+                    INSERT INTO fixtures
+                        (external_id, league_slug, home_team, away_team, kickoff,
+                         status, home_score, away_score, last_synced)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (external_id) DO UPDATE SET
+                        status=excluded.status,
+                        home_score=excluded.home_score,
+                        away_score=excluded.away_score,
+                        kickoff=excluded.kickoff,
+                        last_synced=CURRENT_TIMESTAMP
+                    """,
+                    row,
+                )
+                upserted += 1
+    except Exception as exc:
+        print(f"[openfootball] upsert_fixtures falló: {exc}")
+        return upserted
+
+    print(f"[openfootball] upsert_fixtures: {upserted} fixtures persistidos")
+    return upserted
+
+
 def load_fixtures_of(slugs: list[str]) -> list[dict]:
     """Próximos partidos (sin score) por liga."""
     fixtures: list[dict] = []
@@ -312,7 +395,14 @@ def load_fixtures_of(slugs: list[str]) -> list[dict]:
         if not data:
             continue
         for m in data.get("matches", []):
-            if (m.get("score") or {}).get("ft") is not None:
+            score_val = m.get("score")
+            score = None
+            if isinstance(score_val, dict):
+                score = score_val.get("ft")
+            elif isinstance(score_val, list):
+                score = score_val
+
+            if score is not None:
                 continue
             if m.get("date", "") < today_str:
                 continue
