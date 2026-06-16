@@ -33,7 +33,7 @@
 
 ## When integrating Claude API
 
-- Model: claude-sonnet-4-20250514
+- Model: claude-sonnet-4-6
 - Max tokens: 600 for pick analysis, 1000 for matchday reports
 - Always include recent results history in system prompt when available
 - Parse response as JSON when structured data is needed

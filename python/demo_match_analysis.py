@@ -11,7 +11,7 @@ Cómo funciona:
 3. Extrae forma reciente (últimos 5) de local y visitante
 4. Deriva probabilidades "ML baseline" con ELO (hasta que entrenemos XGBoost)
 5. Normaliza las cuotas de Bet365 a probabilidades implícitas
-6. Llama a Claude (claude-sonnet-4-20250514) con el SYSTEM_PROMPT de Edgebet
+6. Llama a Claude (claude-sonnet-4-6) con el SYSTEM_PROMPT de Edgebet
 7. Imprime el pick final en JSON
 """
 from __future__ import annotations

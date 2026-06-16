@@ -36,7 +36,7 @@ Frontend mobile: React Native (Phase 2)
 Backend:         Python + FastAPI
 Database:        PostgreSQL
 ML:              Python — XGBoost, scikit-learn, pandas, numpy
-AI:              Claude API (claude-sonnet-4-20250514)
+AI:              Claude API (claude-sonnet-4-6)
 Football data:   football-data.co.uk + API-Football
 Markets:         Polymarket Gamma API (public, no auth)
 Payments:        Stripe

@@ -93,7 +93,7 @@ Devuelve este JSON exacto:
 }}"""
 
     message = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-6",
         max_tokens=600,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": prompt}],
@@ -119,7 +119,7 @@ def analyze_matchday(matches: list[dict]) -> str:
         matches_text += f"   Forma local: {m['home_form']:.2f} | Forma visitante: {m['away_form']:.2f}\n"
 
     message = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-6",
         max_tokens=1500,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": f"""Analiza la jornada completa. Para cada partido:
