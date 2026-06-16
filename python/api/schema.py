@@ -352,6 +352,35 @@ CREATE TABLE IF NOT EXISTS picks (
 CREATE INDEX IF NOT EXISTS idx_picks_kickoff ON picks(kickoff);
 CREATE INDEX IF NOT EXISTS idx_picks_league ON picks(league_slug);
 
+-- Sistema de registro ML/analítica: salida cruda del pipeline por fixture
+-- (probabilidades, EV por resultado, Kelly, narrativa, método). Distinta de
+-- `picks` (formato de display para el frontend); se escribe en paralelo y
+-- sirve para backtesting/evaluación del modelo. NOW() no existe en SQLite, por
+-- eso CURRENT_TIMESTAMP.
+CREATE TABLE IF NOT EXISTS predictions (
+    id SERIAL PRIMARY KEY,
+    fixture_id INTEGER REFERENCES fixtures(id) ON DELETE SET NULL,
+    generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    match_date DATE,
+    league TEXT,
+    home_team TEXT,
+    away_team TEXT,
+    predicted_prob_home REAL,
+    predicted_prob_draw REAL,
+    predicted_prob_away REAL,
+    ev_home REAL,
+    ev_draw REAL,
+    ev_away REAL,
+    recommended_bet TEXT,
+    kelly_stake REAL,
+    narrative TEXT,
+    method TEXT DEFAULT 'ensemble',
+    expires_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_predictions_match_date ON predictions(match_date);
+CREATE INDEX IF NOT EXISTS idx_predictions_fixture ON predictions(fixture_id);
+
 -- ============================================================
 -- PLAYER STATS (for player props)
 -- ============================================================

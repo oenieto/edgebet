@@ -15,9 +15,8 @@ from __future__ import annotations
 
 import random
 import sys
-import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from uuid import uuid4
@@ -44,12 +43,8 @@ from api.odds_provider import (
     is_configured as odds_is_configured,
 )
 from api.champions_league import list_fixtures as list_cl_fixtures, load_cl_context
+from api.world_cup import list_fixtures as list_wc_fixtures, load_wc_context
 from deterministic_pick import generate_pick
-
-# TTL en segundos para el pool completo de picks. Los picks solo cambian
-# cuando cambia la lista de fixtures o el modelo — 5 min es razonable.
-_PICKS_TTL_SECONDS = 300
-_picks_cache: dict[str, tuple[float, list[dict]]] = {}
 
 PREDICTION_MAP = {"H": "home", "D": "draw", "A": "away"}
 
@@ -129,6 +124,14 @@ LEAGUES: dict[str, LeagueConfig] = {
         seasons=("2425",),
         featured=(("America", "Guadalajara"), ("Tigres UANL", "Monterrey")),
         logo="https://a.espncdn.com/i/leaguelogos/soccer/500/13.png",
+    ),
+    "fifa-world-cup": LeagueConfig(
+        slug="fifa-world-cup",
+        name="FIFA World Cup 2026",
+        fd_code="WC",
+        seasons=(),
+        featured=(("Argentina", "France"), ("Spain", "England")),
+        logo="https://a.espncdn.com/i/leaguelogos/soccer/500/4.png",
     ),
 }
 
@@ -231,6 +234,9 @@ def _load_league(slug: str):
     cfg = LEAGUES[slug]
     if slug == "champions-league":
         matches, ratings = load_cl_context()
+        return matches, ratings, cfg
+    if slug == "fifa-world-cup":
+        matches, ratings = load_wc_context()
         return matches, ratings, cfg
     # openfootball como fuente primaria (GitHub, siempre reachable)
     matches = load_history_of(slug)
@@ -387,16 +393,23 @@ def _build_pick_for_match(
     else:
         bk_probs, bk_odds = bookmaker
 
-    # ML probs (ensemble o ELO fallback)
-    ml_probs, ml_source = predictor.predict_ml_probs(
-        home_team=home_team,
-        away_team=away_team,
-        matches=matches,
-        elo_ratings=ratings,
-        home_form=home_form,
-        away_form=away_form,
-        bookmaker_probs=bk_probs,
-    )
+    # ML probs (ensemble o ELO fallback, o Poisson xG)
+    import os
+    pred_method = (os.environ.get("PREDICTION_METHOD") or "ensemble").lower()
+    if pred_method == "poisson":
+        from api.poisson_predictor import predict_poisson_probs
+        ml_probs = predict_poisson_probs(home_form, away_form)
+        ml_source = "poisson"
+    else:
+        ml_probs, ml_source = predictor.predict_ml_probs(
+            home_team=home_team,
+            away_team=away_team,
+            matches=matches,
+            elo_ratings=ratings,
+            home_form=home_form,
+            away_form=away_form,
+            bookmaker_probs=bk_probs,
+        )
 
     # Polymarket live (puede devolver None si no hay mercado)
     poly_probs_dict: dict | None = None
@@ -574,28 +587,417 @@ def _build_pick_for_match(
     return result
 
 
-def get_todays_picks(league_slug: str | None = None) -> list[dict]:
-    cache_key = league_slug or "__all__"
-    now = time.time()
-    cached = _picks_cache.get(cache_key)
-    if cached and (now - cached[0]) < _PICKS_TTL_SECONDS:
-        return cached[1]
+def sync_fixtures_to_db(fixtures_list: list[dict], status: str = "scheduled") -> None:
+    """
+    Inserts or updates fixtures in the relational database.
+    Each fixture is identified by its external_id: `league_slug:home_team:away_team:kickoff_iso`.
+    """
+    if not fixtures_list:
+        return
 
-    result = _compute_picks(league_slug)
-    # Cache con TTL largo si hay resultados; corto si está vacío (red caída o sin
-    # fixtures hoy) para no hammerear la red pero permitir recuperación rápida.
-    ttl_entry = (now, result) if result else (now - _PICKS_TTL_SECONDS + 30, result)
-    _picks_cache[cache_key] = ttl_entry
-    return result
+    try:
+        from datetime import datetime
+        with connect() as cur:
+            for f in fixtures_list:
+                home = f.get("HomeTeam")
+                away = f.get("AwayTeam")
+                slug = f.get("leagueSlug")
+                date_str = f.get("Date", "")
+                time_str = f.get("Time", "")
+                if not (home and away and slug):
+                    continue
+
+                match_dt = None
+                if date_str:
+                    try:
+                        time_part = time_str if time_str else "00:00"
+                        fmt = "%d/%m/%Y %H:%M" if len(date_str) > 8 else "%d/%m/%y %H:%M"
+                        match_dt = datetime.strptime(f"{date_str} {time_part}", fmt)
+                    except ValueError:
+                        pass
+
+                kickoff_iso = match_dt.isoformat() if match_dt else "2026-06-16T12:00:00"
+                ext_id = f"{slug}:{home}:{away}:{kickoff_iso[:10]}"
+                
+                fthg = f.get("FTHG")
+                ftag = f.get("FTAG")
+                
+                home_score = int(fthg) if fthg is not None and fthg != "" else None
+                away_score = int(ftag) if ftag is not None and ftag != "" else None
+                
+                match_status = status
+                if home_score is not None and away_score is not None:
+                    match_status = "finished"
+
+                cur.execute("SELECT id FROM fixtures WHERE external_id = %s", (ext_id,))
+                row = cur.fetchone()
+                if row:
+                    fid = row["id"] if hasattr(row, "__getitem__") and "id" in row else row[0]
+                    cur.execute(
+                        """
+                        UPDATE fixtures
+                        SET status = %s, home_score = %s, away_score = %s, last_synced = CURRENT_TIMESTAMP
+                        WHERE id = %s
+                        """,
+                        (match_status, home_score, away_score, fid),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        INSERT INTO fixtures (external_id, league_slug, home_team, away_team, kickoff, status, home_score, away_score)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (ext_id, slug, home, away, kickoff_iso, match_status, home_score, away_score),
+                    )
+    except Exception as exc:
+        print(f"[picks_service] Error syncing fixtures to DB: {exc}")
+
+
+def save_picks_to_db(picks_list: list[dict]) -> None:
+    """
+    Saves or updates picks in the database.
+    """
+    if not picks_list:
+        return
+
+    try:
+        import json
+        with connect() as cur:
+            for p in picks_list:
+                ml = p["mlProb"]
+                bk = p["bkProb"]
+                poly = p.get("polyProb") or {}
+                blended = p.get("blendedProb") or {}
+                
+                markets_json = json.dumps(p.get("markets")) if p.get("markets") else None
+                poly_meta_json = json.dumps(p.get("polyMeta")) if p.get("polyMeta") else None
+                
+                cur.execute("SELECT id FROM picks WHERE id = %s", (p["id"],))
+                if cur.fetchone():
+                    cur.execute(
+                        """
+                        UPDATE picks
+                        SET match = %s, home_team = %s, away_team = %s, home_logo = %s, away_logo = %s,
+                            league = %s, league_logo = %s, league_slug = %s, market = %s, kickoff = %s,
+                            prediction = %s, confidence = %s,
+                            ml_prob_home = %s, ml_prob_draw = %s, ml_prob_away = %s,
+                            poly_prob_home = %s, poly_prob_draw = %s, poly_prob_away = %s,
+                            bk_prob_home = %s, bk_prob_draw = %s, bk_prob_away = %s,
+                            blended_prob_home = %s, blended_prob_draw = %s, blended_prob_away = %s,
+                            ai_reasoning = %s, suggested_stake = %s, status = %s, odds = %s,
+                            edge_pp = %s, ev_pct = %s, sources_agree = %s, market_verified = %s,
+                            markets_json = %s, poly_meta_json = %s
+                        WHERE id = %s
+                        """,
+                        (
+                            p["match"], p["homeTeam"], p["awayTeam"], p.get("homeLogo"), p.get("awayLogo"),
+                            p["league"], p.get("leagueLogo"), p.get("leagueSlug"), p.get("market", "ML"), p["kickoff"],
+                            p["prediction"], p["confidence"],
+                            ml["home"], ml["draw"], ml["away"],
+                            poly.get("home"), poly.get("draw"), poly.get("away"),
+                            bk["home"], bk["draw"], bk["away"],
+                            blended.get("home"), blended.get("draw"), blended.get("away"),
+                            p["aiReasoning"], p["suggestedStake"], p["status"], p.get("odds"),
+                            p.get("edgePp"), p.get("evPct"), p.get("sourcesAgree"), p.get("marketVerified"),
+                            markets_json, poly_meta_json,
+                            p["id"]
+                        )
+                    )
+                else:
+                    cur.execute(
+                        """
+                        INSERT INTO picks (
+                            id, match, home_team, away_team, home_logo, away_logo,
+                            league, league_logo, league_slug, market, kickoff, prediction, confidence,
+                            ml_prob_home, ml_prob_draw, ml_prob_away,
+                            poly_prob_home, poly_prob_draw, poly_prob_away,
+                            bk_prob_home, bk_prob_draw, bk_prob_away,
+                            blended_prob_home, blended_prob_draw, blended_prob_away,
+                            ai_reasoning, suggested_stake, status, odds, edge_pp, ev_pct,
+                            sources_agree, market_verified, markets_json, poly_meta_json
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s,
+                            %s, %s, %s,
+                            %s, %s, %s,
+                            %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s
+                        )
+                        """,
+                        (
+                            p["id"], p["match"], p["homeTeam"], p["awayTeam"], p.get("homeLogo"), p.get("awayLogo"),
+                            p["league"], p.get("leagueLogo"), p.get("leagueSlug"), p.get("market", "ML"), p["kickoff"],
+                            p["prediction"], p["confidence"],
+                            ml["home"], ml["draw"], ml["away"],
+                            poly.get("home"), poly.get("draw"), poly.get("away"),
+                            bk["home"], bk["draw"], bk["away"],
+                            blended.get("home"), blended.get("draw"), blended.get("away"),
+                            p["aiReasoning"], p["suggestedStake"], p["status"], p.get("odds"),
+                            p.get("edgePp"), p.get("evPct"), p.get("sourcesAgree"), p.get("marketVerified"),
+                            markets_json, poly_meta_json
+                        )
+                    )
+    except Exception as exc:
+        print(f"[picks_service] Error saving picks to DB: {exc}")
+
+
+def load_picks_from_db(league_slug: str | None = None) -> list[dict]:
+    """
+    Loads upcoming picks from the database.
+    """
+    picks_list = []
+    try:
+        import json
+        from datetime import datetime, timezone
+        now_str = datetime.now(timezone.utc).isoformat()
+        
+        with connect() as cur:
+            if league_slug:
+                cur.execute(
+                    "SELECT * FROM picks WHERE kickoff >= %s AND league_slug = %s ORDER BY kickoff ASC",
+                    (now_str, league_slug)
+                )
+            else:
+                cur.execute(
+                    "SELECT * FROM picks WHERE kickoff >= %s ORDER BY kickoff ASC",
+                    (now_str,)
+                )
+            
+            rows = cur.fetchall()
+            for r in rows:
+                row_dict = {}
+                if hasattr(r, "keys"):
+                    row_dict = {k: r[k] for k in r.keys()}
+                elif isinstance(r, dict):
+                    row_dict = r
+                else:
+                    try:
+                        row_dict = dict(r)
+                    except Exception:
+                        pass
+                
+                if not row_dict:
+                    continue
+                
+                picks_list.append({
+                    "id": row_dict["id"],
+                    "match": row_dict["match"],
+                    "homeTeam": row_dict["home_team"],
+                    "awayTeam": row_dict["away_team"],
+                    "homeLogo": row_dict.get("home_logo"),
+                    "awayLogo": row_dict.get("away_logo"),
+                    "league": row_dict["league"],
+                    "leagueLogo": row_dict.get("league_logo"),
+                    "leagueSlug": row_dict.get("league_slug"),
+                    "market": row_dict.get("market") or "ML",
+                    "kickoff": row_dict["kickoff"],
+                    "prediction": row_dict["prediction"],
+                    "confidence": row_dict["confidence"],
+                    "mlProb": {
+                        "home": row_dict["ml_prob_home"],
+                        "draw": row_dict["ml_prob_draw"],
+                        "away": row_dict["ml_prob_away"],
+                    },
+                    "polyProb": {
+                        "home": row_dict["poly_prob_home"],
+                        "draw": row_dict["poly_prob_draw"],
+                        "away": row_dict["poly_prob_away"],
+                    } if row_dict.get("poly_prob_home") is not None else None,
+                    "bkProb": {
+                        "home": row_dict["bk_prob_home"],
+                        "draw": row_dict["bk_prob_draw"],
+                        "away": row_dict["bk_prob_away"],
+                    },
+                    "blendedProb": {
+                        "home": row_dict["blended_prob_home"],
+                        "draw": row_dict["blended_prob_draw"],
+                        "away": row_dict["blended_prob_away"],
+                    } if row_dict.get("blended_prob_home") is not None else None,
+                    "aiReasoning": row_dict.get("ai_reasoning") or "",
+                    "suggestedStake": row_dict["suggested_stake"],
+                    "status": row_dict["status"],
+                    "odds": row_dict.get("odds"),
+                    "edgePp": row_dict.get("edge_pp"),
+                    "evPct": row_dict.get("ev_pct"),
+                    "sourcesAgree": bool(row_dict["sources_agree"]) if row_dict.get("sources_agree") is not None else None,
+                    "marketVerified": bool(row_dict["market_verified"]) if row_dict.get("market_verified") is not None else None,
+                    "markets": json.loads(row_dict["markets_json"]) if row_dict.get("markets_json") else None,
+                    "polyMeta": json.loads(row_dict["poly_meta_json"]) if row_dict.get("poly_meta_json") else None,
+                })
+    except Exception as exc:
+        print(f"[picks_service] Error loading picks from DB: {exc}")
+    
+    return picks_list
+
+
+def _kelly_fraction(prob: float | None, dec_odds: float | None, cap: float = 0.10) -> float:
+    """Kelly fraccional acotado. f* = (b·p − q)/b, con b = odds−1, q = 1−p.
+    Cap al 10% del bankroll para no recomendar stakes agresivos."""
+    if prob is None or not dec_odds or dec_odds <= 1.0:
+        return 0.0
+    b = dec_odds - 1.0
+    f = (b * prob - (1.0 - prob)) / b
+    return round(max(0.0, min(f, cap)), 4)
+
+
+def _lookup_fixture_id(cur, home: str | None, away: str | None, slug: str | None):
+    """Best-effort: enlaza una predicción con su fixture persistido. None si no hay match."""
+    try:
+        if slug:
+            cur.execute(
+                "SELECT id FROM fixtures WHERE home_team=%s AND away_team=%s AND league_slug=%s "
+                "ORDER BY id DESC LIMIT 1",
+                (home, away, slug),
+            )
+        else:
+            cur.execute(
+                "SELECT id FROM fixtures WHERE home_team=%s AND away_team=%s ORDER BY id DESC LIMIT 1",
+                (home, away),
+            )
+        row = cur.fetchone()
+        if row:
+            return row["id"] if hasattr(row, "keys") else row[0]
+    except Exception:
+        pass
+    return None
+
+
+def persist_predictions(picks_list: list[dict]) -> int:
+    """Escribe la salida cruda del pipeline en la tabla `predictions` (registro
+    ML/analítica, paralelo a `picks`). Idempotente por matchup: borra la fila
+    previa del mismo home/away antes de insertar. Devuelve nº de filas escritas."""
+    if not picks_list:
+        return 0
+    import os
+    method = os.environ.get("PREDICTION_METHOD", "ensemble")
+    written = 0
+    try:
+        with connect() as cur:
+            for p in picks_list:
+                blended = p.get("blendedProb") or p.get("mlProb") or {}
+                bk = p.get("bkProb") or {}
+                ph, pdraw, pa = blended.get("home"), blended.get("draw"), blended.get("away")
+                rec = p.get("prediction")
+
+                def _imp_odds(side: str) -> float | None:
+                    ip = bk.get(side)
+                    return (1.0 / ip) if ip and ip > 0 else None
+
+                def _ev(prob: float | None, side: str) -> float | None:
+                    # Para el lado recomendado usamos la línea real (p["odds"]) si existe;
+                    # para los demás, derivamos de la prob implícita del bookmaker.
+                    o = p.get("odds") if side == rec and p.get("odds") else _imp_odds(side)
+                    return round(prob * o - 1.0, 4) if (prob is not None and o) else None
+
+                rec_prob = blended.get(rec) if rec in ("home", "draw", "away") else None
+                rec_odds = p.get("odds") or (_imp_odds(rec) if rec in ("home", "draw", "away") else None)
+                kelly = _kelly_fraction(rec_prob, rec_odds)
+
+                kickoff = p.get("kickoff")
+                match_date = kickoff[:10] if isinstance(kickoff, str) and len(kickoff) >= 10 else None
+                home, away = p.get("homeTeam"), p.get("awayTeam")
+                fixture_id = _lookup_fixture_id(cur, home, away, p.get("leagueSlug"))
+
+                # Idempotencia: una predicción vigente por matchup.
+                cur.execute(
+                    "DELETE FROM predictions WHERE home_team=%s AND away_team=%s",
+                    (home, away),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO predictions (
+                        fixture_id, match_date, league, home_team, away_team,
+                        predicted_prob_home, predicted_prob_draw, predicted_prob_away,
+                        ev_home, ev_draw, ev_away, recommended_bet, kelly_stake,
+                        narrative, method, expires_at
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    """,
+                    (
+                        fixture_id, match_date, p.get("league"), home, away,
+                        ph, pdraw, pa,
+                        _ev(ph, "home"), _ev(pdraw, "draw"), _ev(pa, "away"),
+                        rec, kelly, p.get("aiReasoning"), method, kickoff,
+                    ),
+                )
+                written += 1
+    except Exception as exc:
+        print(f"[picks_service] Error persisting predictions: {exc}")
+    return written
+
+
+def generate_and_persist_picks(date: str | None = None, league_slug: str | None = None) -> list[dict]:
+    """Corre el pipeline completo (ML + Polymarket + Bet365 + narrativa Claude) y
+    persiste los resultados en `picks` (formato frontend) y `predictions`
+    (registro ML). Es el único punto que computa picks; los endpoints solo leen.
+
+    `date` se acepta por compatibilidad con el contrato del overhaul; el pool se
+    genera para todos los fixtures próximos (que es lo que consume el dashboard).
+    """
+    picks_list = _compute_picks(league_slug=league_slug)
+    if picks_list:
+        save_picks_to_db(picks_list)
+        persist_predictions(picks_list)
+    return picks_list
+
+
+def read_picks_from_db(date: str | None = None, league_slug: str | None = None) -> list[dict]:
+    """Lee picks persistidos (tabla `picks`, formato frontend). Solo lectura: no
+    dispara cómputo. Por defecto devuelve los próximos (kickoff >= ahora), que es
+    lo que el dashboard pide para "hoy". `date` reservado para filtros futuros."""
+    return load_picks_from_db(league_slug)
+
+
+def precompute_and_save_picks() -> None:
+    """Wrapper retro-compatible para el scheduler — delega en el pipeline unificado."""
+    print("[scheduler] Iniciando precomputo de picks...")
+    try:
+        picks_list = generate_and_persist_picks()
+        if picks_list:
+            print(f"[scheduler] ✓ Generados y persistidos {len(picks_list)} picks (picks + predictions).")
+        else:
+            print("[scheduler] No se generaron picks para guardar.")
+    except Exception as e:
+        print(f"[scheduler] Error precomputando picks: {e}")
+
+
+def get_todays_picks(league_slug: str | None = None) -> list[dict]:
+    """Devuelve el pool de picks de hoy. Lectura de DB únicamente; si la tabla
+    está vacía, dispara generación una sola vez de forma síncrona y relee.
+    Sin cache en memoria — la persistencia en DB es la fuente de verdad."""
+    picks = read_picks_from_db(league_slug=league_slug)
+    if picks:
+        return picks
+    generate_and_persist_picks(league_slug=league_slug)
+    return read_picks_from_db(league_slug=league_slug)
 
 
 def _compute_picks(league_slug: str | None = None) -> list[dict]:
     slugs = [league_slug] if league_slug and league_slug in LEAGUES else list(LEAGUES.keys())
     picks: list[dict] = []
 
-    # Fixtures reales vía openfootball (solo las 5 grandes; CL no está en ese feed)
-    domestic_slugs = [s for s in slugs if s != "champions-league"]
+    # Fixtures reales vía openfootball (solo las 5 grandes; CL y WC no están en ese feed)
+    domestic_slugs = [s for s in slugs if s not in ("champions-league", "fifa-world-cup")]
     fixtures = load_fixtures_of(domestic_slugs) if domestic_slugs else []
+
+    # Sincronizar fixtures programados en DB
+    if fixtures:
+        sync_fixtures_to_db(fixtures, status="scheduled")
+
+    # Sincronizar resultados históricos recientes (últimos 14 días) para settlement
+    for slug in domestic_slugs:
+        try:
+            history = load_history_of(slug)
+            if history:
+                from datetime import datetime, timedelta
+                cutoff = datetime.utcnow() - timedelta(days=14)
+                recent = [m for m in history if m.get("DateObj") and m["DateObj"] >= cutoff]
+                for r in recent:
+                    r["leagueSlug"] = slug
+                sync_fixtures_to_db(recent, status="finished")
+        except Exception as e:
+            print(f"[picks_service] Error syncing history for {slug}: {e}")
 
     now_utc = datetime.now(timezone.utc)
 
@@ -603,10 +1005,36 @@ def _compute_picks(league_slug: str | None = None) -> list[dict]:
         matchups: list[tuple[str, str, str, str, dict | None]] = []
         if slug == "champions-league":
             try:
+                cl_to_sync = []
                 for cl in list_cl_fixtures():
                     matchups.append((cl.home, cl.away, cl.date, cl.time, None))
+                    cl_to_sync.append({
+                        "HomeTeam": cl.home,
+                        "AwayTeam": cl.away,
+                        "Date": cl.date,
+                        "Time": cl.time,
+                        "leagueSlug": slug
+                    })
+                if cl_to_sync:
+                    sync_fixtures_to_db(cl_to_sync, status="scheduled")
             except Exception as e:
                 print(f"[picks_service] Error cargando fixtures de CL: {e}")
+        elif slug == "fifa-world-cup":
+            try:
+                wc_to_sync = []
+                for wc in list_wc_fixtures():
+                    matchups.append((wc.home, wc.away, wc.date, wc.time, None))
+                    wc_to_sync.append({
+                        "HomeTeam": wc.home,
+                        "AwayTeam": wc.away,
+                        "Date": wc.date,
+                        "Time": wc.time,
+                        "leagueSlug": slug
+                    })
+                if wc_to_sync:
+                    sync_fixtures_to_db(wc_to_sync, status="scheduled")
+            except Exception as e:
+                print(f"[picks_service] Error cargando fixtures de WC: {e}")
         else:
             league_fixtures = [f for f in fixtures if f.get("leagueSlug") == slug]
             # Limitamos a próximos 7 días para mantener el pool relevante
@@ -616,9 +1044,15 @@ def _compute_picks(league_slug: str | None = None) -> list[dict]:
                     row.get("Date", ""), row.get("Time", ""),
                     row,
                 ))
-            # Fallback 1: si openfootball no tiene fixtures (p.ej. Liga MX 2025-26
-            # aún no publicado), usamos The Odds API events que ya viene con
-            # cuotas reales adjuntas — pick principal se beneficia automáticamente.
+            # Fallback: si openfootball no tiene fixtures (p.ej. Liga MX 2025-26
+            # aún no publicado), usamos The Odds API events. Cada entry viene
+            # con cuotas reales adjuntas — el pick principal y los markets
+            # secundarios se benefician automáticamente.
+            #
+            # IMPORTANTE: si NINGUNA fuente tiene fixtures reales, devolvemos
+            # lista vacía. JAMÁS generamos matchups sintéticos a partir de
+            # `LEAGUES[slug].featured` — eso era ficción y rompe la confianza
+            # en la app.
             if not matchups and odds_is_configured():
                 try:
                     for entry in fetch_league_odds(slug)[:10]:
@@ -634,18 +1068,6 @@ def _compute_picks(league_slug: str | None = None) -> list[dict]:
                         ))
                 except Exception as exc:
                     print(f"[picks_service] odds API fixtures fallback falló para {slug}: {exc}")
-
-            # Fallback 2: matchups `featured` de la config — último recurso si
-            # ni openfootball ni The Odds API tienen fixtures para esta liga.
-            if not matchups and LEAGUES[slug].featured:
-                synth_dt = now_utc + timedelta(days=7)
-                for fh, fa in LEAGUES[slug].featured:
-                    matchups.append((
-                        fh, fa,
-                        synth_dt.strftime("%d/%m/%Y"),
-                        synth_dt.strftime("%H:%M"),
-                        None,
-                    ))
 
         for j, match_info in enumerate(matchups):
             home, away, date_str, time_str, row = match_info
