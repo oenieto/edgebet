@@ -18,19 +18,88 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def _refresh_national_history():
-    """Refresca el CSV de histórico de selecciones (fuentes football-data)."""
-    from data.national_team_loader import load_and_merge
-    load_and_merge(write=True)
+from pathlib import Path as _Path
+from datetime import datetime as _dt, timezone as _tz
+
+_PIPELINE_LOG = _Path(__file__).resolve().parent / "data" / "pipeline_last_run.log"
+# Ventana del Mundial 2026 (UTC): durante estas fechas el pipeline corre A DIARIO.
+_WC_WINDOW = (_dt(2026, 6, 11, tzinfo=_tz.utc).date(), _dt(2026, 7, 19, tzinfo=_tz.utc).date())
 
 
-def _refit_national_poisson():
-    """Reajusta el modelo Poisson de selecciones con el histórico vigente."""
-    from features.elo import load_national_team_history
+def run_national_pipeline() -> dict:
+    """Pipeline completo de selecciones: carga todas las fuentes, recomputa ELO,
+    reajusta Poisson, refresca la cache del dashboard y escribe un log de la corrida.
+    """
+    from data.national_team_loader import load_all_sources
+    from features.elo import load_national_team_history, compute_national_elo_from_history
     from api.poisson_predictor import get_national_predictor
-    df = load_national_team_history()
-    get_national_predictor().fit_national_teams(df)
-    logger.info("Poisson de selecciones reajustado (%d partidos).", len(df))
+
+    summary = {"rows": 0, "poisson": 0, "elo_fallback": 0, "by_source": {}, "errors": []}
+    try:
+        rows = load_all_sources(write=True)
+        summary["rows"] = len(rows)
+        for r in rows:
+            s = r.get("source", "?")
+            summary["by_source"][s] = summary["by_source"].get(s, 0) + 1
+
+        df = load_national_team_history()
+        compute_national_elo_from_history(df)  # recalibra ELO desde resultados reales
+        predictor = get_national_predictor().fit_national_teams(df)
+
+        # Cobertura Poisson sobre las 48 del Mundial.
+        try:
+            from api.world_cup import all_teams
+            for t in all_teams():
+                if predictor.has_team_data(t.key):
+                    summary["poisson"] += 1
+                else:
+                    summary["elo_fallback"] += 1
+        except Exception as exc:
+            summary["errors"].append(f"coverage: {exc}")
+
+        # Refrescar la cache del dashboard (mtime del CSV cambió → _ensure_model reajusta).
+        try:
+            import api.world_cup_router as wr
+            wr._model_ready = False
+        except Exception as exc:
+            summary["errors"].append(f"cache: {exc}")
+    except Exception as exc:
+        summary["errors"].append(str(exc))
+        logger.error("Pipeline de selecciones falló: %s", exc)
+
+    _write_pipeline_log(summary)
+    logger.info(
+        "Pipeline selecciones: %d partidos · Poisson %d/48 · fallback %d/48",
+        summary["rows"], summary["poisson"], summary["elo_fallback"],
+    )
+    return summary
+
+
+def _write_pipeline_log(summary: dict) -> None:
+    """Sobrescribe python/data/pipeline_last_run.log con el resultado de la corrida."""
+    try:
+        lines = [
+            f"=== Edgebet national pipeline — {_dt.now(_tz.utc).isoformat()} ===",
+            f"CSV rows:            {summary['rows']}",
+            f"Poisson historical:  {summary['poisson']}/48",
+            f"ELO fallback:        {summary['elo_fallback']}/48",
+            "By source:",
+        ]
+        for s, n in sorted(summary["by_source"].items(), key=lambda kv: -kv[1]):
+            lines.append(f"  {s:20s} {n}")
+        lines.append("Errors / source failures:")
+        lines.append("  " + ("; ".join(summary["errors"]) if summary["errors"] else "ninguno"))
+        _PIPELINE_LOG.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except OSError as exc:
+        logger.warning("No pude escribir %s: %s", _PIPELINE_LOG, exc)
+
+
+def _wc_window_daily_pipeline() -> None:
+    """Durante la ventana del Mundial corre el pipeline a diario; fuera, no-op."""
+    today = _dt.now(_tz.utc).date()
+    if _WC_WINDOW[0] <= today <= _WC_WINDOW[1]:
+        logger.info("Ventana del Mundial activa — corrida diaria del pipeline.")
+        run_national_pipeline()
 
 
 def start_scheduler():
@@ -50,14 +119,15 @@ def start_scheduler():
         id='daily_picks_job', timezone="UTC",
     )
 
-    # Selecciones nacionales: refrescar histórico y reajustar Poisson los domingos.
+    # Selecciones nacionales: pipeline completo (carga + ELO + Poisson + log) los
+    # domingos 04:00 UTC. Durante la ventana del Mundial, además a diario 06:00 UTC.
     scheduler.add_job(
-        _refresh_national_history, 'cron', day_of_week='sun', hour=4, minute=0,
-        id='wc_history_refresh', timezone="UTC",
+        run_national_pipeline, 'cron', day_of_week='sun', hour=4, minute=0,
+        id='national_pipeline_weekly', timezone="UTC",
     )
     scheduler.add_job(
-        _refit_national_poisson, 'cron', day_of_week='sun', hour=4, minute=30,
-        id='wc_poisson_refit', timezone="UTC",
+        _wc_window_daily_pipeline, 'cron', hour=6, minute=0,
+        id='national_pipeline_wc_daily', timezone="UTC",
     )
 
     # Ejecutar inmediatamente la primera vez para asegurar que tenemos datos de inicio

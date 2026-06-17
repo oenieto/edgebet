@@ -1,20 +1,23 @@
 """
-Edgebet — loader de histórico de selecciones nacionales (últimos ~5 años).
+Edgebet — loader de histórico de selecciones nacionales (desde 2019).
 
 Alimenta al PoissonPredictor con partidos reales para que las probabilidades
 del Mundial pasen de ELO puro a Poisson basado en goles reales.
 
-Fuentes (ambas gratuitas):
-  A) football-data.co.uk — CSVs de partidos. Históricamente su cobertura es de
-     ligas de clubes; los CSV de selecciones NO están disponibles en una ruta
-     estable hoy (la página /internationals.php responde 300 sin enlaces .csv).
-     Se intenta best-effort y, si no hay datos, se omite con aviso.
-  B) football-data.org REST API — requiere `FOOTBALL_DATA_API_KEY` (free tier).
-     Sin la key responde 403 en TODOS los endpoints (incluido WC). Si falta la
-     key, se omite con aviso — NUNCA crashea.
+Fuentes libres (verificadas 2026-06-17):
+  A) football-data.co.uk — sin CSV de selecciones en ruta estable (404). Stub.
+  B) football-data.org REST — requiere FOOTBALL_DATA_API_KEY. Free tier: solo
+     temporada actual de WC + EC (WCQ/CONC/CAN/CA → 404). Aporta WC 2026 en vivo.
+  C) openfootball GitHub JSON — TODAS las URLs del plan original responden 404
+     (los repos/paths no existen). Deshabilitado; se reactiva si openfootball
+     vuelve a publicarlas.
+  D) martj42/international_results (GitHub) — CSV exhaustivo 1872–presente, TODAS
+     las confederaciones. Filtrado a >=2019 da ~7k partidos de selecciones. Es la
+     fuente principal de cobertura.
+  E) FIFA ranking — fuente 404; corrección de seed ELO omitida (el histórico ya
+     recalibra el ELO desde resultados reales).
 
-Regla dura del proyecto: si ninguna fuente devuelve datos, NO se inventa nada.
-Se escribe un CSV vacío (solo cabecera) y el predictor cae a ELO honestamente.
+Regla dura del proyecto: si una URL falla, se omite — NUNCA se inventan datos.
 """
 from __future__ import annotations
 
@@ -27,171 +30,17 @@ from pathlib import Path
 
 import requests
 
+from data.team_name_map import canonicalize
+
 logger = logging.getLogger("edgebet.natloader")
 
 DATA_DIR = Path(__file__).resolve().parent
 HISTORY_CSV = DATA_DIR / "national_teams_history.csv"
 
-CSV_COLUMNS = ["date", "home_team", "away_team", "home_goals", "away_goals", "competition", "stage"]
+CSV_COLUMNS = ["date", "home_team", "away_team", "home_goals", "away_goals", "competition", "source"]
 
 MIN_DATE = "2019-01-01"
-_REQUEST_TIMEOUT = 12
-
-# ---------------------------------------------------------------------------
-# Normalización de nombres → claves canónicas de world_cup.py
-# ---------------------------------------------------------------------------
-_NAME_CANON: dict[str, str] = {
-    "united states": "USA",
-    "united states of america": "USA",
-    "usa": "USA",
-    "korea republic": "South Korea",
-    "south korea": "South Korea",
-    "republic of korea": "South Korea",
-    "ir iran": "Iran",
-    "iran": "Iran",
-    "côte d'ivoire": "Ivory Coast",
-    "cote d'ivoire": "Ivory Coast",
-    "ivory coast": "Ivory Coast",
-    "holland": "Netherlands",
-    "netherlands": "Netherlands",
-    "czech republic": "Czechia",
-    "england": "England",
-    "saudi arabia": "Saudi Arabia",
-    "south africa": "South Africa",
-    "new zealand": "New Zealand",
-    "costa rica": "Costa Rica",
-    "curaçao": "Curacao",
-    "curacao": "Curacao",
-}
-
-
-def _canon(name: str) -> str:
-    if not name:
-        return name
-    key = name.strip()
-    return _NAME_CANON.get(key.lower(), key)
-
-
-# ---------------------------------------------------------------------------
-# SOURCE A — football-data.co.uk
-# ---------------------------------------------------------------------------
-# Rutas candidatas best-effort. football-data.co.uk no publica CSVs de
-# selecciones en una ubicación estable hoy; si alguna existiera en el futuro,
-# se parsea aquí. Cualquier fallo (300/404/red) se traga y devuelve [].
-_FDCOUK_CANDIDATES = [
-    "https://www.football-data.co.uk/new/internationals.csv",
-    "https://www.football-data.co.uk/internationals.csv",
-]
-
-
-def _load_football_data_couk() -> list[dict]:
-    rows: list[dict] = []
-    for url in _FDCOUK_CANDIDATES:
-        try:
-            resp = requests.get(url, timeout=_REQUEST_TIMEOUT, headers={"User-Agent": "Mozilla/5.0"})
-        except requests.RequestException as exc:
-            logger.warning("[natloader] A: red falló %s: %s", url, exc)
-            continue
-        ctype = resp.headers.get("Content-Type", "")
-        if resp.status_code != 200 or "csv" not in ctype.lower() and not resp.text.lstrip().lower().startswith("date"):
-            logger.info("[natloader] A: %s no es CSV utilizable (status=%s)", url, resp.status_code)
-            continue
-        try:
-            reader = csv.DictReader(io.StringIO(resp.text))
-            for r in reader:
-                date = _parse_date(r.get("Date"))
-                home, away = _canon(r.get("HomeTeam", "")), _canon(r.get("AwayTeam", ""))
-                hg, ag = _to_int(r.get("FTHG")), _to_int(r.get("FTAG"))
-                if not (date and home and away) or hg is None or ag is None:
-                    continue
-                rows.append({
-                    "date": date, "home_team": home, "away_team": away,
-                    "home_goals": hg, "away_goals": ag,
-                    "competition": r.get("Comp") or r.get("League") or "International",
-                    "stage": r.get("Stage") or "",
-                })
-        except Exception as exc:
-            logger.warning("[natloader] A: parse falló %s: %s", url, exc)
-    if rows:
-        logger.info("[natloader] A: %d partidos desde football-data.co.uk", len(rows))
-    else:
-        logger.warning("[natloader] A: sin CSVs de selecciones disponibles — se omite.")
-    return rows
-
-
-# ---------------------------------------------------------------------------
-# SOURCE B — football-data.org REST API
-# ---------------------------------------------------------------------------
-# Competiciones de SELECCIONES NACIONALES. CLI (Copa Libertadores) y CL/PL son
-# de CLUBES: se excluyen a propósito porque mezclarían su línea base de goles con
-# la de selecciones y sesgarían el modelo nacional. CA (Copa América) y WCQ no
-# están en el free tier (403/404) — se omiten en caliente.
-# NOTA free tier: football-data.org solo expone la temporada ACTUAL de cada
-# competición; las históricas (2019–2023) devuelven 403. En la práctica esto da
-# WC 2026 (en curso) + EURO 2024.
-_FDORG_COMPETITIONS = ["WC", "EC", "CA", "WCQ"]
-_FDORG_BASE = "https://api.football-data.org/v4/competitions"
-
-
-def _load_football_data_org() -> list[dict]:
-    api_key = os.environ.get("FOOTBALL_DATA_API_KEY")
-    if not api_key:
-        logger.warning(
-            "[natloader] B: FOOTBALL_DATA_API_KEY ausente — se omite football-data.org "
-            "(devuelve 403 sin key). Las selecciones caerán a ELO."
-        )
-        return []
-
-    headers = {"X-Auth-Token": api_key}
-    rows: list[dict] = []
-    skipped: list[str] = []
-    for comp in _FDORG_COMPETITIONS:
-        url = f"{_FDORG_BASE}/{comp}/matches?status=FINISHED"
-        try:
-            resp = requests.get(url, headers=headers, timeout=_REQUEST_TIMEOUT)
-        except requests.RequestException as exc:
-            skipped.append(f"{comp}(red:{exc})")
-            continue
-        if resp.status_code in (403, 404):
-            skipped.append(f"{comp}({resp.status_code} no disponible en free tier)")
-            continue
-        if resp.status_code == 429:
-            skipped.append(f"{comp}(429 rate-limit)")
-            continue
-        if resp.status_code != 200:
-            skipped.append(f"{comp}({resp.status_code})")
-            continue
-        try:
-            data = resp.json()
-        except ValueError:
-            skipped.append(f"{comp}(json)")
-            continue
-
-        comp_rows = 0
-        for m in data.get("matches", []):
-            if m.get("status") != "FINISHED":
-                continue
-            ft = (m.get("score") or {}).get("fullTime") or {}
-            hg, ag = ft.get("home"), ft.get("away")
-            if hg is None or ag is None:
-                continue
-            date = _parse_date(m.get("utcDate"))
-            home = _canon((m.get("homeTeam") or {}).get("name", ""))
-            away = _canon((m.get("awayTeam") or {}).get("name", ""))
-            if not (date and home and away):
-                continue
-            rows.append({
-                "date": date, "home_team": home, "away_team": away,
-                "home_goals": int(hg), "away_goals": int(ag),
-                "competition": comp, "stage": m.get("stage") or "",
-            })
-            comp_rows += 1
-        logger.info("[natloader] B: %s → %d partidos", comp, comp_rows)
-
-    if skipped:
-        logger.warning("[natloader] B: competiciones omitidas: %s", ", ".join(skipped))
-    logger.info("[natloader] B: %d partidos nacionales en total", len(rows))
-    return rows
+_REQUEST_TIMEOUT = 25
 
 
 # ---------------------------------------------------------------------------
@@ -211,35 +60,172 @@ def _parse_date(raw: str | None) -> str | None:
 
 def _to_int(v) -> int | None:
     try:
-        if v is None or v == "":
+        if v is None or v == "" or v == "NA":
             return None
         return int(float(v))
     except (TypeError, ValueError):
         return None
 
 
-# ---------------------------------------------------------------------------
-# Merge + persistencia
-# ---------------------------------------------------------------------------
-def load_and_merge(write: bool = True) -> list[dict]:
-    """Descarga ambas fuentes, deduplica y (opcionalmente) escribe el CSV.
+def _get(url: str, *, headers: dict | None = None, retries: int = 1) -> requests.Response | None:
+    """GET con reintento simple en errores de conexión. None si falla."""
+    for attempt in range(retries + 1):
+        try:
+            return requests.get(url, headers=headers, timeout=_REQUEST_TIMEOUT)
+        except requests.exceptions.ConnectionError as exc:
+            if attempt >= retries:
+                logger.warning("[natloader] conexión falló %s: %s", url, exc)
+                return None
+        except requests.RequestException as exc:
+            logger.warning("[natloader] red falló %s: %s", url, exc)
+            return None
+    return None
 
-    Devuelve la lista de partidos (posiblemente vacía). Nunca inventa datos.
-    """
-    merged: dict[tuple, dict] = {}
-    for row in _load_football_data_couk() + _load_football_data_org():
-        if row["date"] < MIN_DATE:
+
+# ---------------------------------------------------------------------------
+# SOURCE A — football-data.co.uk (sin CSV de selecciones → stub)
+# ---------------------------------------------------------------------------
+def _load_football_data_couk() -> list[dict]:
+    logger.info("[natloader] A: football-data.co.uk sin CSV de selecciones (404) — omitido.")
+    return []
+
+
+# ---------------------------------------------------------------------------
+# SOURCE B — football-data.org REST API (WC + EC; el resto 403/404)
+# ---------------------------------------------------------------------------
+_FDORG_COMPETITIONS = ["WC", "EC"]
+_FDORG_BASE = "https://api.football-data.org/v4/competitions"
+
+
+def _load_football_data_org() -> list[dict]:
+    api_key = os.environ.get("FOOTBALL_DATA_API_KEY")
+    if not api_key:
+        logger.warning("[natloader] B: FOOTBALL_DATA_API_KEY ausente — omitido.")
+        return []
+
+    headers = {"X-Auth-Token": api_key}
+    rows: list[dict] = []
+    skipped: list[str] = []
+    for comp in _FDORG_COMPETITIONS:
+        resp = _get(f"{_FDORG_BASE}/{comp}/matches?status=FINISHED", headers=headers)
+        if resp is None:
+            skipped.append(f"{comp}(red)")
             continue
-        key = (row["home_team"], row["away_team"], row["date"])
-        merged.setdefault(key, row)
+        if resp.status_code != 200:
+            skipped.append(f"{comp}({resp.status_code})")
+            continue
+        try:
+            data = resp.json()
+        except ValueError:
+            skipped.append(f"{comp}(json)")
+            continue
+        comp_name = (data.get("competition") or {}).get("name") or comp
+        for m in data.get("matches", []):
+            if m.get("status") != "FINISHED":
+                continue
+            ft = (m.get("score") or {}).get("fullTime") or {}
+            hg, ag = _to_int(ft.get("home")), _to_int(ft.get("away"))
+            date = _parse_date(m.get("utcDate"))
+            home = (m.get("homeTeam") or {}).get("name", "")
+            away = (m.get("awayTeam") or {}).get("name", "")
+            if hg is None or ag is None or not (date and home and away):
+                continue
+            rows.append({
+                "date": date, "home_team": home, "away_team": away,
+                "home_goals": hg, "away_goals": ag,
+                "competition": comp_name, "source": "football_data_org",
+            })
+    if skipped:
+        logger.warning("[natloader] B: omitidas %s", ", ".join(skipped))
+    logger.info("[natloader] B: %d partidos (football-data.org)", len(rows))
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# SOURCE C — openfootball (todas las URLs del plan original = 404 → deshabilitado)
+# ---------------------------------------------------------------------------
+def _load_openfootball() -> list[dict]:
+    logger.info("[natloader] C: openfootball deshabilitado (URLs 404 verificadas) — omitido.")
+    return []
+
+
+# ---------------------------------------------------------------------------
+# SOURCE D — martj42/international_results (CSV exhaustivo, todas las confeds)
+# ---------------------------------------------------------------------------
+_MARTJ42_URL = "https://raw.githubusercontent.com/martj42/international_results/master/results.csv"
+
+
+def _load_martj42() -> list[dict]:
+    resp = _get(_MARTJ42_URL)
+    if resp is None or resp.status_code != 200:
+        code = resp.status_code if resp is not None else "red"
+        logger.warning("[natloader] D: martj42 no disponible (%s) — omitido.", code)
+        return []
+    rows: list[dict] = []
+    try:
+        reader = csv.DictReader(io.StringIO(resp.text))
+        for r in reader:
+            date = _parse_date(r.get("date"))
+            if not date or date < MIN_DATE:
+                continue
+            hg, ag = _to_int(r.get("home_score")), _to_int(r.get("away_score"))
+            home, away = r.get("home_team", ""), r.get("away_team", "")
+            if hg is None or ag is None or not (home and away):
+                continue
+            rows.append({
+                "date": date, "home_team": home, "away_team": away,
+                "home_goals": hg, "away_goals": ag,
+                "competition": r.get("tournament") or "International",
+                "source": "martj42",
+            })
+    except Exception as exc:
+        logger.warning("[natloader] D: parse martj42 falló: %s", exc)
+        return []
+    logger.info("[natloader] D: %d partidos >=%s (martj42)", len(rows), MIN_DATE)
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Orquestación: cargar todo, normalizar, deduplicar, validar, guardar
+# ---------------------------------------------------------------------------
+def load_all_sources(write: bool = True) -> list[dict]:
+    """Llama a todas las fuentes, mapea nombres, deduplica y (opcional) guarda CSV."""
+    raw: list[dict] = []
+    raw += _load_football_data_couk()
+    raw += _load_football_data_org()
+    raw += _load_openfootball()
+    raw += _load_martj42()
+
+    merged: dict[tuple, dict] = {}
+    for row in raw:
+        date = row.get("date")
+        if not date or date < MIN_DATE:
+            continue
+        if row.get("home_goals") is None or row.get("away_goals") is None:
+            continue
+        home = canonicalize(row.get("home_team"))
+        away = canonicalize(row.get("away_team"))
+        if not home or not away:
+            continue
+        key = (home, away, date)
+        if key in merged:
+            continue  # dedup: keep first
+        merged[key] = {
+            "date": date, "home_team": home, "away_team": away,
+            "home_goals": int(row["home_goals"]), "away_goals": int(row["away_goals"]),
+            "competition": row.get("competition", ""), "source": row.get("source", ""),
+        }
 
     rows = sorted(merged.values(), key=lambda r: r["date"])
-
     if write:
         _write_csv(rows)
-
-    _print_stats(rows)
+    _print_report(rows)
     return rows
+
+
+# Alias retro-compatible (scheduler / refresh_if_stale lo usan).
+def load_and_merge(write: bool = True) -> list[dict]:
+    return load_all_sources(write=write)
 
 
 def _write_csv(rows: list[dict]) -> None:
@@ -253,24 +239,71 @@ def _write_csv(rows: list[dict]) -> None:
         logger.error("[natloader] no pude escribir %s: %s", HISTORY_CSV, exc)
 
 
-def _print_stats(rows: list[dict]) -> None:
+def _print_report(rows: list[dict]) -> None:
+    line = "═══════════════════════════════════════════"
+    print(line)
+    print("NATIONAL TEAM DATA PIPELINE — FINAL REPORT")
+    print(line)
     if not rows:
-        print("[natloader] 0 partidos cargados — sin fuente disponible (CSV vacío, fallback ELO).")
+        print("Total matches loaded:  0 — sin fuente disponible (CSV vacío, fallback ELO).")
+        print(line)
         return
-    teams = {r["home_team"] for r in rows} | {r["away_team"] for r in rows}
+
     dates = [r["date"] for r in rows]
-    print(
-        f"[natloader] {len(rows)} partidos · rango {min(dates)}–{max(dates)} · {len(teams)} selecciones"
-    )
+    teams = {r["home_team"] for r in rows} | {r["away_team"] for r in rows}
+    by_source: dict[str, int] = {}
+    for r in rows:
+        by_source[r["source"]] = by_source.get(r["source"], 0) + 1
+
+    print(f"Total matches loaded:  {len(rows)}")
+    print(f"Date range:            {min(dates)} → {max(dates)}")
+    print(f"Unique teams:          {len(teams)}")
+    print("")
+    print("By source:")
+    for s in ("football_data_org", "football_data_co_uk", "openfootball", "martj42"):
+        if by_source.get(s):
+            print(f"  {s:20s} {by_source[s]} matches")
+    print("")
+
+    # Cobertura por selección del Mundial 2026 + por confederación.
+    try:
+        from api.world_cup import all_teams
+        wc = all_teams()
+    except Exception:
+        wc = []
+
+    if wc:
+        per_team: dict[str, int] = {}
+        for r in rows:
+            for t in (r["home_team"], r["away_team"]):
+                per_team[t] = per_team.get(t, 0) + 1
+
+        conf: dict[str, list[int]] = {}
+        for t in wc:
+            n = per_team.get(t.key, 0)
+            conf.setdefault(t.confederation, []).append(n)
+        print("By confederation (WC 2026 teams):")
+        for cf in ("UEFA", "CONMEBOL", "CAF", "AFC", "CONCACAF", "OFC"):
+            if cf in conf:
+                vals = conf[cf]
+                print(f"  {cf:9s} ({len(vals)} teams): avg {sum(vals)/len(vals):.1f} matches/team")
+        print("")
+        print("Coverage per WC 2026 team (desc):")
+        ranked = sorted(wc, key=lambda t: per_team.get(t.key, 0), reverse=True)
+        for t in ranked:
+            n = per_team.get(t.key, 0)
+            icon = "✅" if n >= 8 else "⚡"
+            print(f"  {icon} {t.name:18s} — {n} matches" + ("" if n >= 8 else " (ELO fallback)"))
+    print(line)
 
 
 def refresh_if_stale(max_age_hours: int = 24) -> list[dict]:
-    """Refresca el CSV si falta o tiene más de `max_age_hours`. Devuelve los partidos."""
+    """Refresca el CSV si falta o supera `max_age_hours`. Devuelve los partidos."""
     if HISTORY_CSV.exists():
         age_h = (datetime.now(timezone.utc).timestamp() - HISTORY_CSV.stat().st_mtime) / 3600.0
         if age_h < max_age_hours:
             return read_history()
-    return load_and_merge(write=True)
+    return load_all_sources(write=True)
 
 
 def read_history() -> list[dict]:
@@ -287,7 +320,7 @@ def read_history() -> list[dict]:
                 out.append({
                     "date": r.get("date"), "home_team": r.get("home_team"),
                     "away_team": r.get("away_team"), "home_goals": hg, "away_goals": ag,
-                    "competition": r.get("competition", ""), "stage": r.get("stage", ""),
+                    "competition": r.get("competition", ""), "source": r.get("source", ""),
                 })
     except OSError as exc:
         logger.warning("[natloader] no pude leer %s: %s", HISTORY_CSV, exc)
@@ -296,4 +329,4 @@ def read_history() -> list[dict]:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    load_and_merge(write=True)
+    load_all_sources(write=True)

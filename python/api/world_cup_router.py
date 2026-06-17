@@ -37,17 +37,24 @@ _DRAW_BASE = 0.24
 # Estado del modelo (perezoso): se refresca el CSV y se ajusta Poisson en la
 # primera petición, luego se cachea. _elo_map se deriva del histórico si existe.
 _model_ready = False
+_model_csv_mtime: float | None = None
 _elo_map: dict[str, float] | None = None
 
 
 def _ensure_model() -> None:
-    """Refresca el histórico (si tiene >24h) y ajusta el predictor Poisson una vez.
+    """Refresca el histórico (si tiene >24h) y ajusta el predictor Poisson.
 
-    Sin fuente de datos (caso actual), el CSV queda vacío, el Poisson no se
-    ajusta y todo cae a ELO de forma honesta. No crashea nunca.
+    Se reajusta automáticamente cuando cambia el mtime del CSV (p.ej. tras el
+    refresh diario del scheduler), así el dashboard recoge datos nuevos sin
+    reiniciar el proceso. Sin datos, todo cae a ELO de forma honesta. No crashea.
     """
-    global _model_ready, _elo_map
-    if _model_ready:
+    global _model_ready, _elo_map, _model_csv_mtime
+    from data.national_team_loader import HISTORY_CSV
+    try:
+        cur_mtime = HISTORY_CSV.stat().st_mtime if HISTORY_CSV.exists() else None
+    except OSError:
+        cur_mtime = None
+    if _model_ready and cur_mtime == _model_csv_mtime:
         return
     try:
         from data.national_team_loader import refresh_if_stale
@@ -62,6 +69,11 @@ def _ensure_model() -> None:
     except Exception as exc:
         logger.warning("[worldcup] fit Poisson/ELO falló: %s", exc)
         _elo_map = None
+    # Re-stat tras el posible refresh para no reajustar en la próxima petición.
+    try:
+        _model_csv_mtime = HISTORY_CSV.stat().st_mtime if HISTORY_CSV.exists() else None
+    except OSError:
+        _model_csv_mtime = None
     _model_ready = True
 
 

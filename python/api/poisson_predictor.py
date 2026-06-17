@@ -69,7 +69,7 @@ class PoissonPredictor:
     data_source='elo_estimate' y deja que el llamador caiga a ELO.
     """
 
-    MIN_MATCHES = 3        # mínimo de partidos (ponderados por conteo) para confiar
+    MIN_MATCHES = 8        # mínimo de partidos reales para confiar en Poisson
     MAX_GOALS = 8
     RHO = -0.1             # parámetro Dixon-Coles
 
