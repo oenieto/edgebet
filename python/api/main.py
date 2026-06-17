@@ -171,6 +171,15 @@ def pick_stats(pick_id: str) -> dict:
     if not pick:
         raise HTTPException(status_code=404, detail="Pick no encontrado o expirado")
 
+    # Mundial: forma + H2H desde el histórico real de selecciones
+    # (national_teams_history.csv), no desde el loader de ligas de clubes.
+    if pick.get("leagueSlug") == "fifa-world-cup" or "World Cup" in (pick.get("league") or ""):
+        from api.world_cup_router import wc_pick_stats
+        return wc_pick_stats(
+            pick["homeTeam"], pick["awayTeam"],
+            pick.get("homeLogo"), pick.get("awayLogo"),
+        )
+
     slug = pick.get("leagueSlug")
     if not slug:
         return {"h2h": [], "home_stats": _empty_team_stats(pick["homeTeam"]),
@@ -359,7 +368,7 @@ def metrics() -> dict:
     """
     from datetime import datetime, timedelta
     from api.db import connect
-    from api.picks_service import _picks_cache
+    from api.picks_service import load_picks_from_db
 
     cutoff = (datetime.utcnow() - timedelta(days=30)).isoformat()
 
@@ -401,19 +410,16 @@ def metrics() -> dict:
         print(f"[metrics] no pude calcular métricas: {exc}")
 
     # Divergencias activas = picks de hoy donde las 3 fuentes no concuerdan.
-    # Leemos SOLO el cache en memoria — nunca disparamos recompute desde el
-    # endpoint de métricas porque eso bloquearía 30s+. Si el pool no está
-    # caliente devolvemos 0 (el dashboard lo mostrará como "0 activas").
+    # Leemos de la base de datos (load_picks_from_db).
     divergences = 0
     try:
-        cached = _picks_cache.get("__all__")
-        if cached:
-            _, picks_pool = cached
+        picks_pool = load_picks_from_db()
+        if picks_pool:
             for p in picks_pool:
                 if p.get("sourcesAgree") is False:
                     divergences += 1
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[metrics] no pude obtener divergencias: {exc}")
 
     return {
         "accuracy_30d": accuracy,

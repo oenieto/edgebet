@@ -296,3 +296,155 @@ def world_cup_dashboard() -> dict:
         "groups": out_groups,
         "top_picks": top_picks,
     }
+
+
+# ============================================================================
+# Forma reciente + H2H de selecciones (lee national_teams_history.csv).
+# Cache en memoria con TTL de 1h — NO se re-lee el CSV en cada request.
+# ============================================================================
+import time as _time
+
+_HISTORY_CACHE: dict = {"rows": None, "ts": 0.0}
+_HISTORY_TTL = 3600  # 1 hora
+
+
+def _history_rows() -> list[dict]:
+    now = _time.time()
+    if _HISTORY_CACHE["rows"] is not None and (now - _HISTORY_CACHE["ts"]) < _HISTORY_TTL:
+        return _HISTORY_CACHE["rows"]
+    try:
+        from data.national_team_loader import read_history
+        rows = read_history()
+    except Exception as exc:
+        logger.warning("[worldcup] no pude leer histórico de selecciones: %s", exc)
+        rows = []
+    _HISTORY_CACHE["rows"] = rows
+    _HISTORY_CACHE["ts"] = now
+    return rows
+
+
+def get_team_form(team_name: str, n: int = 10) -> dict:
+    """Forma reciente de una selección desde el histórico (últimos n partidos)."""
+    from data.team_name_map import canonicalize
+    key = canonicalize(team_name)
+    rows = [r for r in _history_rows() if r.get("home_team") == key or r.get("away_team") == key]
+    rows.sort(key=lambda r: r.get("date", ""), reverse=True)
+    rows = rows[:n]
+
+    form: list[str] = []
+    wins = draws = losses = 0
+    gf = ga = btts = over25 = 0
+    recent: list[dict] = []
+    for r in rows:
+        is_home = r.get("home_team") == key
+        hg, ag = int(r["home_goals"]), int(r["away_goals"])
+        tg, og = (hg, ag) if is_home else (ag, hg)
+        res = "W" if tg > og else ("D" if tg == og else "L")
+        form.append(res)
+        wins += res == "W"; draws += res == "D"; losses += res == "L"
+        gf += tg; ga += og
+        btts += hg > 0 and ag > 0
+        over25 += (hg + ag) > 2.5
+        if len(recent) < 5:
+            recent.append({
+                "date": r.get("date"), "home_team": r.get("home_team"), "away_team": r.get("away_team"),
+                "home_goals": hg, "away_goals": ag, "competition": r.get("competition", ""),
+                "result_for_team": res,
+            })
+
+    cnt = len(rows)
+    return {
+        "team": key,
+        "matches_found": cnt,
+        "form_last5": form[:5],
+        "wins": wins, "draws": draws, "losses": losses,
+        "gf_per_game": round(gf / cnt, 2) if cnt else 0.0,
+        "gc_per_game": round(ga / cnt, 2) if cnt else 0.0,
+        "btts_pct": round(btts / cnt * 100, 1) if cnt else 0.0,
+        "over25_pct": round(over25 / cnt * 100, 1) if cnt else 0.0,
+        "recent_matches": recent,
+    }
+
+
+def get_h2h(home_team: str, away_team: str, n: int = 5) -> dict:
+    """Enfrentamientos directos entre dos selecciones (resultado desde el local)."""
+    from data.team_name_map import canonicalize
+    hk, ak = canonicalize(home_team), canonicalize(away_team)
+    rows = [
+        r for r in _history_rows()
+        if {r.get("home_team"), r.get("away_team")} == {hk, ak}
+    ]
+    rows.sort(key=lambda r: r.get("date", ""), reverse=True)
+    rows = rows[:n]
+
+    matches: list[dict] = []
+    for r in rows:
+        if r.get("home_team") == hk:
+            hg, ag = int(r["home_goals"]), int(r["away_goals"])
+        else:
+            hg, ag = int(r["away_goals"]), int(r["home_goals"])
+        res = "W" if hg > ag else ("D" if hg == ag else "L")
+        matches.append({
+            "date": r.get("date"), "home_team": hk, "away_team": ak,
+            "home_goals": hg, "away_goals": ag, "competition": r.get("competition", ""),
+            "result_for_home": res,
+        })
+    return {"matches": matches, "found": len(matches)}
+
+
+def _team_stats_pickshape(team_name: str, logo: str | None) -> dict:
+    """Mapea get_team_form() a la forma TeamStats que consume el pick detail."""
+    f = get_team_form(team_name, n=5)
+    last5 = [
+        {
+            "date": m["date"],
+            "home": m["home_team"], "away": m["away_team"],
+            "score": f'{m["home_goals"]}-{m["away_goals"]}',
+            "result": m["result_for_team"],
+        }
+        for m in f["recent_matches"]
+    ]
+    gf = sum(int(m["home_goals"]) if m["home_team"] == f["team"] else int(m["away_goals"]) for m in f["recent_matches"])
+    ga = sum(int(m["away_goals"]) if m["home_team"] == f["team"] else int(m["home_goals"]) for m in f["recent_matches"])
+    wins = sum(1 for m in f["recent_matches"] if m["result_for_team"] == "W")
+    draws = sum(1 for m in f["recent_matches"] if m["result_for_team"] == "D")
+    losses = sum(1 for m in f["recent_matches"] if m["result_for_team"] == "L")
+    return {
+        "team": team_name,
+        "logo": logo,
+        "form": "".join(f["form_last5"]),
+        "elo": round(_elo_of(f["team"])),
+        "last_5": last5,
+        "aggregates": {"wins": wins, "draws": draws, "losses": losses,
+                       "goals_for": gf, "goals_against": ga},
+    }
+
+
+def wc_pick_stats(home_team: str, away_team: str,
+                  home_logo: str | None = None, away_logo: str | None = None) -> dict:
+    """PickStatsResponse {h2h, home_stats, away_stats} para un partido del Mundial,
+    construido desde el histórico real de selecciones."""
+    h2h_raw = get_h2h(home_team, away_team, n=5)
+    h2h = [
+        {
+            "date": m["date"], "home": m["home_team"], "away": m["away_team"],
+            "homeLogo": home_logo, "awayLogo": away_logo,
+            "score": f'{m["home_goals"]}-{m["away_goals"]}', "result": m["result_for_home"],
+        }
+        for m in h2h_raw["matches"]
+    ]
+    return {
+        "h2h": h2h,
+        "home_stats": _team_stats_pickshape(home_team, home_logo),
+        "away_stats": _team_stats_pickshape(away_team, away_logo),
+    }
+
+
+@router.get("/team-stats/{team_name}")
+def team_stats_endpoint(team_name: str) -> dict:
+    return get_team_form(team_name, n=10)
+
+
+@router.get("/h2h")
+def h2h_endpoint(home: str, away: str) -> dict:
+    return get_h2h(home, away, n=5)
