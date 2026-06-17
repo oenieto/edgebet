@@ -373,6 +373,42 @@ def bankroll_transactions(
         return {"total": total, "page": page, "transactions": txs}
 
 
+@router.get("/kelly-suggestion")
+def kelly_suggestion(
+    user: Annotated[UserPublic, Depends(get_current_user)],
+    prob: float = Query(..., gt=0, lt=1, description="Probabilidad estimada de ganar (0-1)"),
+    odds: float = Query(..., gt=1, description="Cuota decimal"),
+) -> dict:
+    """Stake sugerido por Kelly fraccional (1/4) sobre el balance actual."""
+    with connect() as cur:
+        cur.execute("SELECT current_balance FROM bankroll WHERE user_id=%s", (user.id,))
+        row = cur.fetchone()
+        balance = float(row["current_balance"]) if row else 0.0
+
+    kelly_fraction = (prob * odds - 1.0) / (odds - 1.0)
+    fractional = 0.25
+
+    if kelly_fraction <= 0:
+        return {
+            "kelly_fraction": round(kelly_fraction, 4),
+            "fractional_kelly": fractional,
+            "recommended_fraction": 0.0,
+            "recommended_stake": 0.0,
+            "current_balance": round(balance, 2),
+            "warning": "Valor esperado negativo — no apostar",
+        }
+
+    rec_fraction = kelly_fraction * fractional
+    return {
+        "kelly_fraction": round(kelly_fraction, 4),
+        "fractional_kelly": fractional,
+        "recommended_fraction": round(rec_fraction, 4),
+        "recommended_stake": round(balance * rec_fraction, 2),
+        "current_balance": round(balance, 2),
+        "warning": None,
+    }
+
+
 @router.get("/equity")
 def bankroll_equity(
     user: Annotated[UserPublic, Depends(get_current_user)],

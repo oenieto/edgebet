@@ -91,25 +91,23 @@ def _team_probs(team: WCTeam, group: list[WCTeam]) -> tuple[dict[str, int], str]
         return {"win": 33, "draw": 34, "loss": 33}, "elo_estimate"
 
     predictor = get_national_predictor()
-    poisson_rows = [predictor.predict(team.key, opp.key) for opp in opps]
-    all_poisson = all(r.get("data_source") == "poisson_historical" for r in poisson_rows)
-
-    if all_poisson:
-        w = sum(r["home"] for r in poisson_rows) / len(poisson_rows)
-        d = sum(r["draw"] for r in poisson_rows) / len(poisson_rows)
-        l = sum(r["away"] for r in poisson_rows) / len(poisson_rows)
-        return _to_pct({"win": w, "draw": d, "loss": l}), "poisson_historical"
-
-    # Fallback ELO (neutral, promedio sobre rivales).
     elo_team = _elo_of(team.key)
     w = d = l = 0.0
     for opp in opps:
-        pw, pd, pl = _neutral_1x2(elo_team, _elo_of(opp.key))
-        w += pw
-        d += pd
-        l += pl
+        r = predictor.predict(team.key, opp.key)
+        if r.get("data_source") == "poisson_historical":
+            w += r["home"]; d += r["draw"]; l += r["away"]
+        else:
+            # La dupla no tiene datos suficientes → ELO neutral para ese rival.
+            pw, pd, pl = _neutral_1x2(elo_team, _elo_of(opp.key))
+            w += pw; d += pd; l += pl
     n = len(opps)
-    return _to_pct({"win": w / n, "draw": d / n, "loss": l / n}), "elo_estimate"
+    pct = _to_pct({"win": w / n, "draw": d / n, "loss": l / n})
+
+    # La selección es "Poisson histórico" si SU propia fuerza viene de partidos
+    # reales (≥3), aunque algún rival de grupo no tenga datos (ese cruce usó ELO).
+    data_source = "poisson_historical" if predictor.has_team_data(team.key) else "elo_estimate"
+    return pct, data_source
 
 
 def _to_pct(probs: dict[str, float]) -> dict[str, int]:
@@ -242,7 +240,7 @@ def _build_top_picks(groups: dict[str, list[WCTeam]], teams_by_name: dict[str, d
     out = []
     for i, (_score, team, obj) in enumerate(scored[:6]):
         if obj.get("data_source") == "poisson_historical":
-            hot = f"Victoria media estimada {obj['prob_win']}% · Poisson histórico (5 años)"
+            hot = f"Victoria media estimada {obj['prob_win']}% · Poisson histórico"
         else:
             hot = f"ELO {_elo_of(team.key):.0f} · victoria media estimada {obj['prob_win']}% (sin stats de partido)"
         out.append({
@@ -278,7 +276,7 @@ def world_cup_dashboard() -> dict:
     top_picks = _build_top_picks(groups, teams_by_name)
 
     # Etiqueta de modelo dinámica para el frontend (footer/disclaimer).
-    model_label = "Poisson histórico (5 años)" if any_real else "Estimación ELO"
+    model_label = "Poisson histórico" if any_real else "Estimación ELO"
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),

@@ -126,28 +126,55 @@ def update_profile(user_id: int, body: UserProfileUpdate, user: Annotated[UserPu
 
 @router.get("/{user_id}/bankroll")
 def get_bankroll(user_id: int, user: Annotated[UserPublic, Depends(get_current_user)]):
+    """Compat: mantiene la forma vieja {current_amount, initial_amount, ...} pero
+    lee del sistema NUEVO (tabla bankroll + bankroll_equity_log), que es la única
+    fuente de verdad. Fallback legacy a user_profiles/bankroll_snapshots solo si el
+    usuario aún no tiene fila en bankroll (no debería pasar tras la migración)."""
     if user.id != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
-        
+
     with connect() as cur:
-        cur.execute("SELECT bankroll FROM user_profiles WHERE user_id = %s", (user_id,))
-        profile = cur.fetchone()
-        current_amount = profile["bankroll"] if profile else 0.0
-        
-        cur.execute("SELECT * FROM bankroll_snapshots WHERE user_id = %s ORDER BY date ASC LIMIT 30", (user_id,))
-        rows = cur.fetchall()
-        
-    sparkline = [{"date": r["date"], "amount": r["amount"]} for r in rows]
-    initial = sparkline[0]["amount"] if sparkline else current_amount
+        cur.execute(
+            "SELECT initial_capital, current_balance FROM bankroll WHERE user_id = %s",
+            (user_id,),
+        )
+        bk = cur.fetchone()
+        if bk:
+            current_amount = float(bk["current_balance"])
+            initial = float(bk["initial_capital"])
+            cur.execute(
+                "SELECT snapshot_date, balance FROM bankroll_equity_log "
+                "WHERE user_id = %s ORDER BY snapshot_date ASC LIMIT 30",
+                (user_id,),
+            )
+            sparkline = [
+                {
+                    "date": r["snapshot_date"].isoformat() if hasattr(r["snapshot_date"], "isoformat") else str(r["snapshot_date"]),
+                    "amount": float(r["balance"]),
+                }
+                for r in cur.fetchall()
+            ]
+        else:
+            # Fallback legacy (pre-migración).
+            cur.execute("SELECT bankroll FROM user_profiles WHERE user_id = %s", (user_id,))
+            profile = cur.fetchone()
+            current_amount = float(profile["bankroll"]) if profile else 0.0
+            cur.execute(
+                "SELECT date, amount FROM bankroll_snapshots WHERE user_id = %s ORDER BY date ASC LIMIT 30",
+                (user_id,),
+            )
+            sparkline = [{"date": r["date"], "amount": float(r["amount"])} for r in cur.fetchall()]
+            initial = sparkline[0]["amount"] if sparkline else current_amount
+
     pnl_total = current_amount - initial
     pnl_pct = (pnl_total / initial * 100) if initial > 0 else 0
-    
+
     return {
         "current_amount": current_amount,
         "initial_amount": initial,
         "pnl_total": pnl_total,
         "pnl_pct": pnl_pct,
-        "sparkline_data": sparkline
+        "sparkline_data": sparkline,
     }
 
 

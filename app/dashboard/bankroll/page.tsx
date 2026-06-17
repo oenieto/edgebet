@@ -470,7 +470,9 @@ function SetupCard({ token, onDone }: { token: string | null; onDone: (res: Bank
     <div className="max-w-md mx-auto rounded-xl border border-white/[0.06] bg-[#111114] p-6 mt-10 text-center">
       <Wallet className="w-8 h-8 mx-auto text-zinc-400 mb-3" />
       <h2 className="font-sans text-lg font-bold mb-1">Configura tu bankroll</h2>
-      <p className="text-sm text-zinc-400 mb-5">Define tu capital inicial para empezar a rastrear el crecimiento de tus predicciones.</p>
+      <p className="text-sm text-zinc-400 mb-5">
+        Establece tu capital inicial para rastrear el crecimiento real de tus predicciones con Kelly fraccional
+      </p>
       <SetupForm token={token} onDone={onDone} />
     </div>
   );
@@ -484,7 +486,7 @@ function SetupForm({ token, onDone }: { token: string | null; onDone: (res: Bank
 
   const submit = () => {
     const n = parseFloat(capital);
-    if (!Number.isFinite(n) || n <= 0) { setErr('Capital inválido.'); return; }
+    if (!Number.isFinite(n) || n < 10) { setErr('El capital inicial mínimo es 10.'); return; }
     setBusy(true); setErr(null);
     setupBankroll(token, { initial_capital: n, currency })
       .then(onDone)
@@ -495,15 +497,16 @@ function SetupForm({ token, onDone }: { token: string | null; onDone: (res: Bank
   return (
     <div className="text-left">
       <label className="block text-xs text-zinc-400 mb-1">Capital inicial</label>
-      <input type="number" value={capital} onChange={(e) => setCapital(e.target.value)} className={INPUT_CLS} />
+      <input type="number" min={10} value={capital} onChange={(e) => setCapital(e.target.value)} className={INPUT_CLS} />
       <label className="block text-xs text-zinc-400 mb-1 mt-3">Moneda</label>
       <select value={currency} onChange={(e) => setCurrency(e.target.value)} className={INPUT_CLS}>
         <option value="USD">USD</option>
-        <option value="EUR">EUR</option>
         <option value="MXN">MXN</option>
+        <option value="EUR">EUR</option>
       </select>
       {err && <p className="text-xs text-red-400 mt-2">{err}</p>}
-      <button onClick={submit} disabled={busy} className={`${BTN_PRIMARY} w-full mt-4 disabled:opacity-50`}>Comenzar</button>
+      <button onClick={submit} disabled={busy} className={`${BTN_PRIMARY} w-full mt-4 disabled:opacity-50`}>Comenzar a rastrear</button>
+      <p className="text-[11px] text-zinc-500 text-center mt-2">Puedes modificarlo después en cualquier momento</p>
     </div>
   );
 }

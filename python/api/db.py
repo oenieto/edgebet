@@ -95,6 +95,34 @@ def _ensure_columns_pg(cur) -> None:
             print(f"[db] (pg) no pude agregar {table}.{col}: {exc}")
 
 
+def _run_bankroll_migration(ex) -> None:
+    """Idempotente: garantiza una fila de bankroll ($1000 default) y un snapshot
+    de equity de hoy para cada usuario existente. `ex` es un cursor (PG) o una
+    conexión (SQLite) — ambos exponen .execute(). CURRENT_DATE funciona en ambos."""
+    try:
+        ex.execute(
+            """
+            INSERT INTO bankroll (user_id, initial_capital, current_balance)
+            SELECT id, 1000.0, 1000.0 FROM users
+            WHERE id NOT IN (SELECT user_id FROM bankroll)
+            ON CONFLICT (user_id) DO NOTHING
+            """
+        )
+        ex.execute(
+            """
+            INSERT INTO bankroll_equity_log (user_id, snapshot_date, balance)
+            SELECT b.user_id, CURRENT_DATE, b.current_balance FROM bankroll b
+            WHERE NOT EXISTS (
+                SELECT 1 FROM bankroll_equity_log e
+                WHERE e.user_id = b.user_id AND e.snapshot_date = CURRENT_DATE
+            )
+            ON CONFLICT (user_id, snapshot_date) DO NOTHING
+            """
+        )
+    except Exception as exc:
+        print(f"[db] bankroll legacy-migration falló: {exc}")
+
+
 def init_db() -> None:
     global USE_SQLITE
     try:
@@ -106,6 +134,7 @@ def init_db() -> None:
                     seed_teams(cur)
                     seed_ranks_pg(cur)
                     seed_achievements_pg(cur)
+                    _run_bankroll_migration(cur)
                     print("[db] PostgreSQL inicializado correctamente.")
                     return
             except Exception as e:
@@ -120,6 +149,7 @@ def init_db() -> None:
             seed_teams_sqlite(conn)
             seed_ranks_sqlite(conn)
             seed_achievements_sqlite(conn)
+            _run_bankroll_migration(conn)
             print(f"[db] SQLite inicializado correctamente en {SQLITE_DB_PATH}")
 
     except Exception as exc:

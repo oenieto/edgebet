@@ -122,7 +122,14 @@ def _load_football_data_couk() -> list[dict]:
 # ---------------------------------------------------------------------------
 # SOURCE B — football-data.org REST API
 # ---------------------------------------------------------------------------
-_FDORG_COMPETITIONS = ["WC", "EC", "CLI"]  # Mundial, EURO, Copa Libertadores/Intl
+# Competiciones de SELECCIONES NACIONALES. CLI (Copa Libertadores) y CL/PL son
+# de CLUBES: se excluyen a propósito porque mezclarían su línea base de goles con
+# la de selecciones y sesgarían el modelo nacional. CA (Copa América) y WCQ no
+# están en el free tier (403/404) — se omiten en caliente.
+# NOTA free tier: football-data.org solo expone la temporada ACTUAL de cada
+# competición; las históricas (2019–2023) devuelven 403. En la práctica esto da
+# WC 2026 (en curso) + EURO 2024.
+_FDORG_COMPETITIONS = ["WC", "EC", "CA", "WCQ"]
 _FDORG_BASE = "https://api.football-data.org/v4/competitions"
 
 
@@ -137,20 +144,30 @@ def _load_football_data_org() -> list[dict]:
 
     headers = {"X-Auth-Token": api_key}
     rows: list[dict] = []
+    skipped: list[str] = []
     for comp in _FDORG_COMPETITIONS:
-        url = f"{_FDORG_BASE}/{comp}/matches"
+        url = f"{_FDORG_BASE}/{comp}/matches?status=FINISHED"
         try:
             resp = requests.get(url, headers=headers, timeout=_REQUEST_TIMEOUT)
         except requests.RequestException as exc:
-            logger.warning("[natloader] B: red falló %s: %s", comp, exc)
+            skipped.append(f"{comp}(red:{exc})")
+            continue
+        if resp.status_code in (403, 404):
+            skipped.append(f"{comp}({resp.status_code} no disponible en free tier)")
+            continue
+        if resp.status_code == 429:
+            skipped.append(f"{comp}(429 rate-limit)")
             continue
         if resp.status_code != 200:
-            logger.warning("[natloader] B: %s status=%s — se omite", comp, resp.status_code)
+            skipped.append(f"{comp}({resp.status_code})")
             continue
         try:
             data = resp.json()
         except ValueError:
+            skipped.append(f"{comp}(json)")
             continue
+
+        comp_rows = 0
         for m in data.get("matches", []):
             if m.get("status") != "FINISHED":
                 continue
@@ -168,7 +185,12 @@ def _load_football_data_org() -> list[dict]:
                 "home_goals": int(hg), "away_goals": int(ag),
                 "competition": comp, "stage": m.get("stage") or "",
             })
-    logger.info("[natloader] B: %d partidos desde football-data.org", len(rows))
+            comp_rows += 1
+        logger.info("[natloader] B: %s → %d partidos", comp, comp_rows)
+
+    if skipped:
+        logger.warning("[natloader] B: competiciones omitidas: %s", ", ".join(skipped))
+    logger.info("[natloader] B: %d partidos nacionales en total", len(rows))
     return rows
 
 

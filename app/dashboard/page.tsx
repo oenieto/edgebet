@@ -17,7 +17,6 @@ import {
 } from 'lucide-react';
 
 import LeagueRail from '@/components/shell/LeagueRail';
-import BankrollTracker from '@/components/bankroll/BankrollTracker';
 import BankrollWidget from '@/components/bankroll/BankrollWidget';
 import SmartAlerts from '@/components/bankroll/SmartAlerts';
 import PerformanceChart from '@/components/performance/PerformanceChart';
@@ -160,12 +159,9 @@ export default function DashboardPage() {
           <PromoBanners userTier={userTier} />
 
 
-          {/* Metrics row */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-            <div className="md:col-span-2 lg:col-span-4">
-              <BankrollTracker />
-            </div>
-          </div>
+          {/* Metrics row — el bankroll se muestra una sola vez arriba con el
+              widget DB-backed; el BankrollTracker store-based se retiró del
+              render (archivo intacto) para evitar duplicado. */}
           <MetricsRow metrics={metrics} picksCount={picks?.length} tierCounts={tierCounts} />
 
           {/* Performance chart */}

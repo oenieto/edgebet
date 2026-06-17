@@ -146,6 +146,10 @@ class PoissonPredictor:
     def _has_data(self, team: str) -> bool:
         return team in self.national_attack and self._counts.get(team, 0) >= self.MIN_MATCHES
 
+    def has_team_data(self, team: str) -> bool:
+        """True si la selección tiene suficientes partidos reales para Poisson."""
+        return self._has_data(team)
+
     def predict(self, home_team: str, away_team: str) -> dict:
         """Probabilidades 1X2 + data_source. Usa Poisson histórico solo si ambas
         selecciones tienen datos suficientes; si no, marca elo_estimate."""
