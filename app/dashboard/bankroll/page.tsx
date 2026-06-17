@@ -287,7 +287,7 @@ function EquityChart({ s }: { s: BankrollSummary }) {
               <Tooltip
                 contentStyle={{ background: '#18181b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
                 labelFormatter={(l) => shortDate(String(l))}
-                formatter={(value: number | string) => {
+                formatter={(value) => {
                   const v = Number(value);
                   const pnl = v - s.initial_capital;
                   return [`${money(v, s.currency)} (${pnl >= 0 ? '+' : ''}${money(pnl, s.currency)})`, 'Balance'];
