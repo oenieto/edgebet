@@ -158,6 +158,59 @@ def picks_today(league: str | None = None) -> list[Pick]:
     return []
 
 
+@app.get("/predictions/recent")
+def predictions_recent(days: int = 30, limit: int = 300) -> dict:
+    """Predicciones recientes (tabla predictions) para Tendencias / Historial.
+    Pública (los picks son globales, no por usuario)."""
+    from datetime import timedelta
+    from api.db import connect
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+    out: list[dict] = []
+    try:
+        with connect() as cur:
+            cur.execute(
+                """
+                SELECT match_date, league, home_team, away_team, recommended_bet,
+                       predicted_prob_home, predicted_prob_draw, predicted_prob_away,
+                       ev_home, ev_draw, ev_away, kelly_stake, method, generated_at
+                FROM predictions
+                WHERE (match_date IS NULL OR match_date >= %s)
+                ORDER BY generated_at DESC
+                LIMIT %s
+                """,
+                (cutoff, limit),
+            )
+            for r in cur.fetchall():
+                d = {k: r[k] for k in r.keys()} if hasattr(r, "keys") else None
+                if d is None:
+                    continue
+                rec = d.get("recommended_bet")
+                ev = {"home": d.get("ev_home"), "draw": d.get("ev_draw"), "away": d.get("ev_away")}.get(rec)
+                prob = {
+                    "home": d.get("predicted_prob_home"),
+                    "draw": d.get("predicted_prob_draw"),
+                    "away": d.get("predicted_prob_away"),
+                }.get(rec)
+                md = d.get("match_date")
+                gen = d.get("generated_at")
+                out.append({
+                    "match_date": md.isoformat() if hasattr(md, "isoformat") else (str(md) if md else None),
+                    "league": d.get("league"),
+                    "home_team": d.get("home_team"),
+                    "away_team": d.get("away_team"),
+                    "recommended_bet": rec,
+                    "prob": prob,
+                    "ev": ev,
+                    "kelly_stake": d.get("kelly_stake"),
+                    "method": d.get("method"),
+                    "generated_at": gen.isoformat() if hasattr(gen, "isoformat") else (str(gen) if gen else None),
+                })
+    except Exception as exc:
+        print(f"[predictions] recent error: {exc}")
+    return {"predictions": out, "count": len(out)}
+
+
 @app.get("/picks/{pick_id}/stats")
 def pick_stats(pick_id: str) -> dict:
     """

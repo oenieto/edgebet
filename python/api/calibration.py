@@ -57,12 +57,24 @@ def calibrate_ensemble(ensemble, X_val, y_val):
     """
     try:
         from sklearn.calibration import CalibratedClassifierCV
+        try:
+            from sklearn.frozen import FrozenEstimator
+            has_frozen = True
+        except ImportError:
+            has_frozen = False
 
-        calibrated = CalibratedClassifierCV(
-            estimator=ensemble,
-            method="isotonic",
-            cv="prefit",
-        )
+        if has_frozen:
+            frozen = FrozenEstimator(ensemble)
+            calibrated = CalibratedClassifierCV(
+                estimator=frozen,
+                method="isotonic",
+            )
+        else:
+            calibrated = CalibratedClassifierCV(
+                estimator=ensemble,
+                method="isotonic",
+                cv="prefit",
+            )
         calibrated.fit(X_val, y_val)
         return calibrated
     except Exception as exc:

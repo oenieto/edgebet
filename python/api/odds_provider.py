@@ -87,14 +87,27 @@ SPORT_KEY_BY_LEAGUE = {
     "ligue-1": "soccer_france_ligue_one",
     "champions-league": "soccer_uefa_champs_league",
     "liga-mx": "soccer_mexico_ligamx",
+    "fifa-world-cup": "soccer_fifa_world_cup",
 }
 
 # Bookmakers preferidos — orden de prioridad para extraer odds canónicos.
 PREFERRED_BOOKMAKERS = ("pinnacle", "bet365", "williamhill", "unibet", "draftkings")
 
 CACHE_DIR = Path(__file__).resolve().parent.parent / "data" / "cache"
-CACHE_TTL_SECONDS = 60 * 5   # 5 min — odds reales se mueven, no queremos data vieja
+# Cache largo a propósito: el tier free son 500 req/mes. Con 6 ligas
+# polleadas cada 5 min se quema en horas. 45 min da margen para ~960 req/mes
+# en steady state (mucho debajo del cap). Las cuotas se mueven pero no tanto
+# como para invalidar EV en 45 min — los picks no son arbitraje, son edges.
+# Override vía env `EDGEBET_ODDS_CACHE_SECONDS` cuando subas a paid tier.
+CACHE_TTL_SECONDS = int(os.environ.get("EDGEBET_ODDS_CACHE_SECONDS", str(60 * 45)))
 REQUEST_TIMEOUT = 6
+
+# Circuit breaker: cuando recibimos 401 (cuota agotada del tier free),
+# congelamos llamadas al provider por este intervalo. Después auto-reintentamos
+# por si la cuota mensual ya se reseteó o el plan se actualizó. Sin esto cada
+# request al dashboard hace 6 round-trips a la API para recibir 6 × 401.
+QUOTA_EXHAUSTED_COOLDOWN_SECONDS = 30 * 60  # 30 min
+_quota_exhausted_until: float = 0.0
 
 logger = logging.getLogger("edgebet.odds")
 
@@ -118,6 +131,16 @@ def _read_cache(path: Path) -> Optional[dict]:
     try:
         if (time.time() - path.stat().st_mtime) > CACHE_TTL_SECONDS:
             return None
+        return json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _read_cache_stale(path: Path) -> Optional[dict]:
+    """Lee el cache aunque haya expirado — para fallback cuando el API falla."""
+    if not path.exists():
+        return None
+    try:
         return json.loads(path.read_text())
     except (OSError, json.JSONDecodeError):
         return None
@@ -309,6 +332,14 @@ def fetch_league_odds(league_slug: str) -> list[dict]:
     if cached is not None:
         return cached
 
+    # Circuit breaker: si ya sabemos que la cuota está exhausta, ni intentamos.
+    # Servimos directamente el cache stale para que el dashboard siga vivo.
+    global _quota_exhausted_until
+    now = time.time()
+    if now < _quota_exhausted_until:
+        stale = _read_cache_stale(_cache_path(cache_key))
+        return stale if stale else []
+
     url = f"{API_BASE}/sports/{sport_key}/odds"
     params = {
         "apiKey": _api_key(),
@@ -319,16 +350,26 @@ def fetch_league_odds(league_slug: str) -> list[dict]:
     try:
         resp = requests.get(url, params=params, timeout=REQUEST_TIMEOUT)
     except requests.exceptions.RequestException as exc:
-        logger.warning("[odds] %s falló: %s", league_slug, exc)
-        return []
+        logger.warning("[odds] %s red falló: %s — usando cache stale", league_slug, exc)
+        stale = _read_cache_stale(_cache_path(cache_key))
+        return stale if stale else []
 
     if resp.status_code == 401:
-        logger.warning("[odds] API key inválida — desactivando provider hasta restart")
-        os.environ.pop("EDGEBET_ODDS_API_KEY", None)
-        return []
+        # Cuota agotada del tier free. Activamos circuit breaker para no
+        # gastar el último request restante en los próximos 30 min, y servimos
+        # cache stale. Auto-reintenta cuando expire el cooldown.
+        _quota_exhausted_until = now + QUOTA_EXHAUSTED_COOLDOWN_SECONDS
+        logger.warning(
+            "[odds] %s 401 (cuota agotada) — circuit breaker activo %d min, usando cache stale",
+            league_slug,
+            QUOTA_EXHAUSTED_COOLDOWN_SECONDS // 60,
+        )
+        stale = _read_cache_stale(_cache_path(cache_key))
+        return stale if stale else []
     if resp.status_code != 200:
-        logger.warning("[odds] %s status=%s", league_slug, resp.status_code)
-        return []
+        logger.warning("[odds] %s status=%s — usando cache stale", league_slug, resp.status_code)
+        stale = _read_cache_stale(_cache_path(cache_key))
+        return stale if stale else []
 
     try:
         data = resp.json()

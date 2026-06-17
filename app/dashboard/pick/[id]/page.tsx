@@ -6,8 +6,11 @@ import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Clock, MapPin, Target, Flame, Trophy, Activity, Lock, BarChart3, TrendingUp } from 'lucide-react';
 import { getPick, getPickStats } from '@/lib/api/picks';
 import { useAuth } from '@/contexts/AuthContext';
+import { useUserStore } from '@/lib/store/userStore';
 import TeamLogo from '@/components/picks/TeamLogo';
 import PolymarketChart from '@/components/performance/PolymarketChart';
+import MarketChips from '@/components/picks/MarketChips';
+import MarketsPanel from '@/components/picks/MarketsPanel';
 import type { Pick, MatchStat, TeamStats } from '@/types';
 
 function formatKickoffDate(iso: string) {
@@ -78,6 +81,7 @@ export default function PickDetailPage() {
   const router = useRouter();
   const { user } = useAuth();
   const userTier = (user?.tier ?? 'free') as 'free' | 'pro' | 'vip';
+  const { profile } = useUserStore();
 
   const { data: pick, error, isLoading } = useSWR(id ? `pick-${id}` : null, () => getPick(id as string));
   const { data: stats } = useSWR(id ? `pick-stats-${id}` : null, () => getPickStats(id as string));
@@ -158,6 +162,17 @@ export default function PickDetailPage() {
               </div>
             </div>
           </div>
+
+          {!pick.marketVerified && (
+            <div className="mb-6 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3">
+              <Activity className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+              <div className="font-sans text-[12.5px] text-amber-200 leading-relaxed">
+                <span className="font-bold">Pick informativo · sin cuota de mercado verificada.</span>{' '}
+                El motor estimó la probabilidad con ELO + Poisson pero la cuota mostrada es sintética.
+                EV y edge no se calculan porque no hay línea real contra la cual comparar.
+              </div>
+            </div>
+          )}
 
           <div className="flex items-center justify-center gap-6 md:gap-12 mb-10">
             <div className="flex flex-col items-center gap-3 flex-1 min-w-0">
@@ -266,6 +281,15 @@ export default function PickDetailPage() {
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {!isLocked && pick.markets && (
+            <div className="mt-8 space-y-6">
+              <div>
+                <MarketChips pick={pick} profile={profile?.risk_profile ?? 'balanced'} />
+              </div>
+              <MarketsPanel pick={pick} />
             </div>
           )}
 

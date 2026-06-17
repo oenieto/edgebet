@@ -28,3 +28,9 @@ python/models/*.joblib
 
 # Local snapshots
 login/
+
+# DB and cache files
+python/data/edgebet.db
+python/data/cache/
+*.tsbuildinfo
+

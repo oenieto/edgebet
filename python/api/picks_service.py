@@ -1021,16 +1021,49 @@ def _compute_picks(league_slug: str | None = None) -> list[dict]:
                 print(f"[picks_service] Error cargando fixtures de CL: {e}")
         elif slug == "fifa-world-cup":
             try:
+                from data.team_name_map import canonicalize
                 wc_to_sync = []
-                for wc in list_wc_fixtures():
-                    matchups.append((wc.home, wc.away, wc.date, wc.time, None))
-                    wc_to_sync.append({
-                        "HomeTeam": wc.home,
-                        "AwayTeam": wc.away,
-                        "Date": wc.date,
-                        "Time": wc.time,
-                        "leagueSlug": slug
-                    })
+                api_fixtures = []
+                if odds_is_configured():
+                    try:
+                        api_fixtures = fetch_league_odds(slug)
+                    except Exception as e:
+                        print(f"[picks_service] Error al obtener odds de WC desde API: {e}")
+
+                if api_fixtures:
+                    print(f"[picks_service] Obtenidos {len(api_fixtures)} fixtures reales del Mundial desde la API.")
+                    for entry in api_fixtures:
+                        ko = entry.get("kickoff", "")
+                        try:
+                            dt = datetime.fromisoformat(ko.replace("Z", "+00:00"))
+                        except ValueError:
+                            continue
+                        
+                        # Canonicalizar nombres de equipos para ELO y Predictor
+                        home_canon = canonicalize(entry["home_team"])
+                        away_canon = canonicalize(entry["away_team"])
+                        
+                        matchups.append((home_canon, away_canon, dt.strftime("%d/%m/%Y"), dt.strftime("%H:%M"), None))
+                        wc_to_sync.append({
+                            "HomeTeam": home_canon,
+                            "AwayTeam": away_canon,
+                            "Date": dt.strftime("%d/%m/%Y"),
+                            "Time": dt.strftime("%H:%M"),
+                            "leagueSlug": slug
+                        })
+                else:
+                    # Fallback a los fixtures curados tradicionales si la API no está configurada o falló
+                    print("[picks_service] Fallback a fixtures curados para fifa-world-cup")
+                    for wc in list_wc_fixtures():
+                        matchups.append((wc.home, wc.away, wc.date, wc.time, None))
+                        wc_to_sync.append({
+                            "HomeTeam": wc.home,
+                            "AwayTeam": wc.away,
+                            "Date": wc.date,
+                            "Time": wc.time,
+                            "leagueSlug": slug
+                        })
+                
                 if wc_to_sync:
                     sync_fixtures_to_db(wc_to_sync, status="scheduled")
             except Exception as e:

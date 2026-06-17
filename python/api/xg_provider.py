@@ -247,7 +247,9 @@ def _scrape_understat_team(slug: str, season: str) -> Optional[dict]:
             "Accept-Language": "en-US,en;q=0.9",
         }
         req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        # Timeout corto: Understat es opcional (caemos al proxy si falla).
+        # Antes era 10s y bloqueaba el endpoint /picks/today por 30+ seg.
+        with urllib.request.urlopen(req, timeout=2) as resp:
             html = resp.read().decode("utf-8", errors="replace")
 
         # Understat stores match data in a JS variable: var datesData = JSON.parse('...');
@@ -341,6 +343,9 @@ def get_team_xg(
 
     result = _scrape_understat_team(slug, season)
     if result is None:
+        # Cacheamos también el proxy result para no re-scrapear Understat en
+        # cada pick. Si Understat 404'ea para este equipo/season, el fallback
+        # queda válido durante todo el TTL del cache en memoria.
         result = _proxy_result(home_sot, home_shots, away_sot, away_shots)
 
     _set_cache(cache_key, result)

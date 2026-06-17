@@ -107,6 +107,33 @@ export default function DashboardPage() {
 
   const highlights = useMemo(() => buildHighlights(picks ?? []), [picks]);
 
+  // Mejor pick de hoy: mayor EV (priorizando market-verified).
+  const bestPick = useMemo(() => {
+    const pool = picks ?? [];
+    if (pool.length === 0) return null;
+    return [...pool].sort((a, b) => {
+      const va = (a.marketVerified ? 1000 : 0) + (a.evPct ?? -999);
+      const vb = (b.marketVerified ? 1000 : 0) + (b.evPct ?? -999);
+      return vb - va;
+    })[0];
+  }, [picks]);
+
+  // Próximos partidos del Mundial (para el strip).
+  const wcPicks = useMemo(
+    () =>
+      (picks ?? [])
+        .filter((p) => p.leagueSlug === 'fifa-world-cup')
+        .sort((a, b) => (a.kickoff || '').localeCompare(b.kickoff || ''))
+        .slice(0, 3),
+    [picks],
+  );
+
+  // Ventana del Mundial 2026 (11 jun – 19 jul).
+  const inWcWindow = useMemo(() => {
+    const now = new Date();
+    return now >= new Date('2026-06-11') && now <= new Date('2026-07-20');
+  }, []);
+
   return (
     <div className="max-w-[1600px] mx-auto px-4 md:px-6 lg:px-8 py-6">
       <div className="grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-5">
@@ -122,157 +149,50 @@ export default function DashboardPage() {
           }}
         />
 
-        <section className="flex flex-col gap-5 min-w-0">
-          <SmartAlerts />
-
-          {/* Bankroll persistido (DB) — widget compacto sobre los picks */}
-          <BankrollWidget />
-
-          {/* Search */}
-          <div className="relative">
-            <Search className="w-4 h-4 text-zinc-500 absolute left-4 top-1/2 -translate-y-1/2" />
-            <input
-              type="search"
-              placeholder="Buscar equipo, liga, evento…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="w-full h-[48px] pl-11 pr-4 rounded-xl bg-[#111114] border border-white/[0.06] font-sans text-[14px] text-white placeholder:text-zinc-600 focus:outline-none focus:border-white/20 focus:bg-[#16161a] transition-colors"
-            />
+        <section className="flex flex-col gap-8 min-w-0">
+          {/* SECCIÓN 1 — Mejor pick de hoy */}
+          <div>
+            <SectionLabel>Mejor pick de hoy</SectionLabel>
+            <HeroBestPick pick={bestPick} loading={loading} />
           </div>
 
-          {/* Chip row */}
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide -mx-1 px-1">
-            <TypeChip active icon={<Sparkles className="w-3.5 h-3.5" />} label="Todos" />
-            <TypeChip
-              icon={<Crown className="w-3.5 h-3.5" />}
-              label="Pick del día"
-              accent="amber"
-              href="/dashboard/pick-del-dia"
-            />
-            <TypeChip icon={<Flame className="w-3.5 h-3.5" />} label="Alto EV" />
-            <TypeChip icon={<Zap className="w-3.5 h-3.5" />} label="Divergencias" />
-            <TypeChip icon={<Target className="w-3.5 h-3.5" />} label="VIP" accent="amber" count={tierCounts.vip} />
-            <TypeChip icon={<TrendingUp className="w-3.5 h-3.5" />} label="Premium" count={tierCounts.premium} />
+          {/* SECCIÓN 2 — Bankroll (widget compacto, una sola fila) */}
+          <div>
+            <SectionLabel>Bankroll</SectionLabel>
+            <BankrollWidget />
           </div>
 
-          {/* Promo banners — adaptados al tier del usuario */}
-          <PromoBanners userTier={userTier} />
-
-
-          {/* Metrics row — el bankroll se muestra una sola vez arriba con el
-              widget DB-backed; el BankrollTracker store-based se retiró del
-              render (archivo intacto) para evitar duplicado. */}
-          <MetricsRow metrics={metrics} picksCount={picks?.length} tierCounts={tierCounts} />
-
-          {/* Performance chart */}
-          <PerformanceChart />
-
-          {/* Featured */}
-          {highlights && !loading && !error && (
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-white/[0.06] text-white flex items-center justify-center">
-                    <Sparkles className="w-3.5 h-3.5" />
-                  </div>
-                  <h2 className="font-sans font-bold text-[15px] text-white tracking-tight">
-                    Destacados del día
-                  </h2>
-                </div>
-                <Link
-                  href="/dashboard/pick-del-dia"
-                  className="font-sans text-[12px] font-semibold text-zinc-400 hover:text-white flex items-center gap-1"
-                >
-                  Ver más
-                  <ArrowRight className="w-3.5 h-3.5" />
+          {/* SECCIÓN 3 — Picks del día (grid compacto) */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <SectionLabel>Picks del día</SectionLabel>
+              {filteredPicks.length > 6 && (
+                <Link href="/dashboard/historial" className="text-[12px] font-semibold text-zinc-400 hover:text-white flex items-center gap-1">
+                  Ver todos <ArrowRight className="w-3.5 h-3.5" />
                 </Link>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-                <HighlightCard
-                  label="Mayor EV"
-                  value={highlights.topEv ? `+${highlights.topEv.evPct?.toFixed(1)}%` : '—'}
-                  sub={highlights.topEv ? highlights.topEv.match : '—'}
-                  tier={highlights.topEv?.status}
-                  locked={shouldLock(highlights.topEv?.status, userTier)}
-                  valueTone="emerald"
-                />
-                <HighlightCard
-                  label="Mayor confianza"
-                  value={highlights.topConfidence ? `${highlights.topConfidence.confidence}%` : '—'}
-                  sub={highlights.topConfidence ? highlights.topConfidence.match : '—'}
-                  tier={highlights.topConfidence?.status}
-                  locked={shouldLock(highlights.topConfidence?.status, userTier)}
-                />
-                <HighlightCard
-                  label="Mejor edge"
-                  value={
-                    highlights.topEdge
-                      ? `${(highlights.topEdge.edgePp ?? 0) >= 0 ? '+' : ''}${highlights.topEdge.edgePp?.toFixed(1)}pp`
-                      : '—'
-                  }
-                  sub={highlights.topEdge ? highlights.topEdge.match : '—'}
-                  tier={highlights.topEdge?.status}
-                  locked={shouldLock(highlights.topEdge?.status, userTier)}
-                  valueTone="emerald"
-                />
-                <HighlightCard
-                  label="Stake óptimo (Kelly)"
-                  value={highlights.topStake ? `${highlights.topStake.suggestedStake.toFixed(1)}%` : '—'}
-                  sub={highlights.topStake ? highlights.topStake.match : '—'}
-                  tier={highlights.topStake?.status}
-                  locked={shouldLock(highlights.topStake?.status, userTier)}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Tabla */}
-          <div className="bg-[#111114] border border-white/[0.06] rounded-xl overflow-hidden">
-            <div className="px-5 py-4 border-b border-white/[0.06] flex items-end justify-between gap-4">
-              <div>
-                <h2 className="font-sans font-bold text-[16px] text-white tracking-tight flex items-center gap-2">
-                  <Globe2 className="w-4 h-4 text-zinc-400" />
-                  {selectedLeague
-                    ? leagues.find((l) => l.slug === selectedLeague)?.name
-                    : 'Picks del día'}
-                </h2>
-                <p className="font-sans text-[11.5px] text-zinc-500 mt-0.5">
-                  {filteredPicks.length} partido{filteredPicks.length === 1 ? '' : 's'} · ordenados por EV
-                </p>
-              </div>
-              {topPick && (
-                <div className="hidden md:flex items-center gap-2 text-[11px] font-mono text-zinc-500">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  LIVE UPDATING
-                </div>
               )}
             </div>
-
-            {loading && <TableSkeleton />}
-
-            {error && !loading && (
-              <div className="p-6">
-                <PicksEmptyState
-                  variant="error"
-                  description={error}
-                  ctaHref="/dashboard"
-                  ctaLabel="Reintentar"
-                />
+            {loading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="h-[120px] rounded-xl bg-white/[0.04] animate-pulse" />
+                ))}
               </div>
-            )}
-
-            {!loading && !error && filteredPicks.length === 0 && (
-              <div className="p-6">
-                <PicksEmptyState
-                  variant={picks && picks.length === 0 ? 'searching' : 'no-results'}
-                />
+            ) : error ? (
+              <PicksEmptyState variant="error" description={error} ctaHref="/dashboard" ctaLabel="Reintentar" />
+            ) : filteredPicks.length === 0 ? (
+              <PicksEmptyState variant={picks && picks.length === 0 ? 'searching' : 'no-results'} />
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {filteredPicks.slice(0, 9).map((p) => (
+                  <CompactPickCard key={p.id} pick={p} />
+                ))}
               </div>
-            )}
-
-            {!loading && !error && filteredPicks.length > 0 && (
-              <PicksTable picks={filteredPicks} userTier={userTier} />
             )}
           </div>
+
+          {/* SECCIÓN 4 — Mundial 2026 (strip, solo durante la ventana) */}
+          {inWcWindow && <WorldCupStrip picks={wcPicks} />}
         </section>
       </div>
     </div>
@@ -947,6 +867,149 @@ function TableSkeleton() {
           className="h-12 bg-white/[0.03] rounded-lg animate-pulse"
         />
       ))}
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Componentes del dashboard simplificado (Phase 2)
+// ───────────────────────────────────────────────────────────────────────────
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-[11px] uppercase tracking-[0.18em] font-bold text-zinc-500 mb-2">
+      {children}
+    </div>
+  );
+}
+
+function predictionLabel(p: Pick): string {
+  if (p.prediction === 'home') return p.homeTeam;
+  if (p.prediction === 'away') return p.awayTeam;
+  if (p.prediction === 'draw') return 'Empate';
+  return p.prediction;
+}
+
+function HeroBestPick({ pick, loading }: { pick: Pick | null; loading: boolean }) {
+  if (loading) {
+    return <div className="h-[120px] rounded-xl bg-white/[0.04] animate-pulse" />;
+  }
+  if (!pick) {
+    return (
+      <div className="rounded-xl border border-white/[0.06] bg-[#111114] p-5 text-sm text-zinc-400">
+        Sin picks para hoy · próximo análisis a las 06:00 UTC
+      </div>
+    );
+  }
+  const ev = pick.evPct;
+  return (
+    <Link
+      href={`/dashboard/pick/${pick.id}`}
+      className="group block rounded-xl border border-white/[0.06] bg-gradient-to-br from-emerald-500/[0.06] to-transparent hover:border-white/15 p-5 transition-colors"
+    >
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[11px] font-mono uppercase tracking-wider text-zinc-500">{pick.league}</span>
+            {pick.marketVerified && (
+              <span className="text-[10px] font-semibold rounded-full px-2 py-0.5 bg-emerald-500/15 text-emerald-300">
+                market-verified
+              </span>
+            )}
+          </div>
+          <div className="font-sans font-bold text-white text-[18px] truncate">
+            {pick.homeTeam} <span className="text-zinc-600">vs</span> {pick.awayTeam}
+          </div>
+          <div className="text-[13px] text-zinc-400 mt-0.5">
+            Recomendación: <span className="text-zinc-200 font-semibold">{predictionLabel(pick)}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-4 shrink-0">
+          <div className="text-right">
+            <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">EV</div>
+            <div className="font-mono font-bold text-xl" style={{ color: 'var(--color-success)' }}>
+              {ev != null ? `${ev >= 0 ? '+' : ''}${ev.toFixed(1)}%` : '—'}
+            </div>
+          </div>
+          <span className="text-sm font-semibold text-zinc-300 group-hover:text-white flex items-center gap-1">
+            Ver análisis <ArrowRight className="w-4 h-4" />
+          </span>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+function CompactPickCard({ pick }: { pick: Pick }) {
+  const seguro = (pick.confidence ?? 0) >= 60 || pick.marketVerified;
+  const ev = pick.evPct;
+  return (
+    <Link
+      href={`/dashboard/pick/${pick.id}`}
+      className="block rounded-xl border border-white/[0.06] bg-[#111114] hover:border-white/15 p-4 transition-colors min-h-[120px]"
+    >
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 truncate">{pick.league}</span>
+        <span
+          className="text-[10px] font-semibold rounded-full px-2 py-0.5"
+          style={
+            seguro
+              ? { backgroundColor: 'color-mix(in srgb, var(--color-success) 15%, transparent)', color: 'var(--color-success)' }
+              : { backgroundColor: 'color-mix(in srgb, var(--color-warning) 15%, transparent)', color: 'var(--color-warning)' }
+          }
+        >
+          {seguro ? 'SEGURO' : 'RIESGO'}
+        </span>
+      </div>
+      <div className="font-sans font-semibold text-white text-[14px] leading-tight mb-2">
+        {pick.homeTeam} <span className="text-zinc-600">vs</span> {pick.awayTeam}
+      </div>
+      <div className="flex items-center justify-between">
+        <span className="text-[12px] text-zinc-400">{predictionLabel(pick)}</span>
+        {ev != null && (
+          <span className="text-[12px] font-mono font-bold" style={{ color: ev >= 0 ? 'var(--color-success)' : 'var(--color-danger)' }}>
+            {ev >= 0 ? '+' : ''}{ev.toFixed(1)}% EV
+          </span>
+        )}
+      </div>
+    </Link>
+  );
+}
+
+function WorldCupStrip({ picks }: { picks: Pick[] }) {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <span className="relative inline-flex w-2 h-2">
+            <span className="absolute inline-flex w-full h-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
+            <span className="relative inline-flex w-2 h-2 rounded-full bg-emerald-500" />
+          </span>
+          <span className="text-[11px] uppercase tracking-[0.18em] font-bold text-zinc-300">🏆 Mundial 2026 en vivo</span>
+        </div>
+        <Link href="/world-cup" className="text-[12px] font-semibold text-zinc-400 hover:text-white flex items-center gap-1">
+          Ver todos <ArrowRight className="w-3.5 h-3.5" />
+        </Link>
+      </div>
+      {picks.length === 0 ? (
+        <div className="rounded-xl border border-white/[0.06] bg-[#111114] p-3 text-[13px] text-zinc-500">
+          Sin próximos partidos en el pool · ver todos en /world-cup
+        </div>
+      ) : (
+        <div className="flex gap-2 overflow-x-auto scrollbar-hide">
+          {picks.map((p) => (
+            <Link
+              key={p.id}
+              href={`/dashboard/pick/${p.id}`}
+              className="shrink-0 rounded-lg border border-white/[0.06] bg-[#111114] hover:border-white/15 px-3 py-2 text-[12px] text-zinc-300 transition-colors"
+            >
+              <span className="font-semibold text-white">{p.homeTeam}</span>
+              <span className="text-zinc-600"> vs </span>
+              <span className="font-semibold text-white">{p.awayTeam}</span>
+              <span className="text-zinc-500"> · Próximamente</span>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

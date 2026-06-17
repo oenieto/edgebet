@@ -64,7 +64,8 @@
       "Bash(python3 -c \"import json; d=json.load\\(open\\('/tmp/picks.json'\\)\\); print\\('count:', len\\(d\\)\\); print\\('sample:', d[0]['homeTeam'], 'vs', d[0]['awayTeam']\\) if d else print\\('EMPTY'\\)\")",
       "Bash(python3 -c \"import json; d=json.load\\(open\\('/tmp/picks2.json'\\)\\); print\\('count:', len\\(d\\)\\)\")",
       "Bash(kill 11313)",
-      "Bash(echo \"started, pid=$!\")"
+      "Bash(echo \"started, pid=$!\")",
+      "Bash(grep -n \"dashboard/pick\\\\|pick/\\\\${\" /Users/oenieto/Documents/Edgebet/app/dashboard/page.tsx)"
     ],
     "additionalDirectories": [
       "/Users/oenieto/Documents/Edgebet/python/python/models",

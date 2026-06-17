@@ -54,8 +54,8 @@ export interface LeagueInfo {
 }
 
 export interface Metrics {
-  accuracy_30d: number;
-  roi_monthly: number;
+  accuracy_30d: number | null;
+  roi_monthly: number | null;
   verified_picks: number;
   active_divergences: number;
 }

@@ -371,6 +371,63 @@ ESPN_TEAM_ID: dict[str, str] = {
     "Queretaro":                    "229",
     "Querétaro":                    "229",
     "Gallos Blancos":               "229",
+
+    # ── National Teams (Copa del Mundo) ──────────────────────────────────
+    "Algeria":                      "alg",
+    "Argentina":                    "arg",
+    "Australia":                    "aus",
+    "Austria":                      "aut",
+    "Belgium":                      "bel",
+    "Brazil":                       "bra",
+    "Canada":                       "can",
+    "Colombia":                     "col",
+    "Croatia":                      "cro",
+    "Curaçao":                      "11678",
+    "Curacao":                      "11678",
+    "Ecuador":                      "ecu",
+    "Egypt":                        "egy",
+    "England":                      "eng",
+    "France":                       "fra",
+    "Germany":                      "ger",
+    "Ghana":                        "gha",
+    "Iran":                         "irn",
+    "Iraq":                         "irq",
+    "Ivory Coast":                  "civ",
+    "Japan":                        "jpn",
+    "Jordan":                       "jor",
+    "Mexico":                       "mex",
+    "Morocco":                      "mar",
+    "Netherlands":                  "ned",
+    "New Zealand":                  "nzl",
+    "Norway":                       "nor",
+    "Panama":                       "pan",
+    "Paraguay":                     "par",
+    "Portugal":                     "por",
+    "Qatar":                        "qat",
+    "Saudi Arabia":                 "ksa",
+    "Senegal":                      "654", # Wait! Senegal ID was 654. Is 654 numeric? Yes!
+    "South Africa":                 "rsa",
+    "South Korea":                  "kor",
+    "Spain":                        "esp",
+    "Sweden":                       "swe",
+    "Switzerland":                  "sui",
+    "Tunisia":                      "tun",
+    "United States":                "usa",
+    "USA":                          "usa",
+    "Uruguay":                      "uru",
+    "Uzbekistan":                   "uzb",
+    "Bosnia":                       "bih",
+    "Bosnia & Herzegovina":         "bih",
+    "Bosnia-Herzegovina":           "bih",
+    "Cape Verde":                   "cpv",
+    "Congo DR":                     "cod",
+    "DR Congo":                     "cod",
+    "Czechia":                      "cze",
+    "Czech Republic":               "cze",
+    "Haiti":                        "hai",
+    "Scotland":                     "sco",
+    "Turkey":                       "tur",
+    "Türkiye":                      "tur",
 }
 
 
@@ -381,4 +438,8 @@ def logo_url(team_name: str) -> str | None:
     team_id = ESPN_TEAM_ID.get(team_name)
     if not team_id:
         return None
-    return f"https://a.espncdn.com/i/teamlogos/soccer/500/{team_id}.png"
+    # Si el team_id es puramente numérico, usa la URL de clubes (soccer)
+    if team_id.isdigit():
+        return f"https://a.espncdn.com/i/teamlogos/soccer/500/{team_id}.png"
+    # Si es alfabético (código de país), usa la URL de países (countries)
+    return f"https://a.espncdn.com/i/teamlogos/countries/500/{team_id}.png"

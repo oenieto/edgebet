@@ -1,10 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { Crown, Flame, Globe2, Layers, Star, TrendingUp, TrendingDown, LogOut, Settings, Wallet, User } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { BarChart3, Crown, Flame, Globe2, History, Layers, Layers3, Star, TrendingUp, TrendingDown, LogOut, Settings, Wallet, User } from 'lucide-react';
 import type { LeagueInfo } from '@/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUserStore } from '@/lib/store/userStore';
+import { getBankrollSummary, type BankrollSummary } from '@/lib/api/bankroll';
 
 interface LeagueRailProps {
   leagues: LeagueInfo[];
@@ -25,9 +27,17 @@ export default function LeagueRail({
   counts,
   topMetrics,
 }: LeagueRailProps) {
-  const { user, logout } = useAuth();
+  const { user, logout, token } = useAuth();
   const { bankroll } = useUserStore();
+  const [summary, setSummary] = useState<BankrollSummary | null>(null);
   const total = counts ? Object.values(counts).reduce((a, b) => a + b, 0) : null;
+
+  useEffect(() => {
+    if (!user) return;
+    getBankrollSummary(token).then(setSummary).catch(() => setSummary(null));
+  }, [user, token]);
+
+  const bankrollConfigured = summary?.configured !== false && summary != null;
   const sortedLeagues = [...leagues].sort((a, b) => a.name.localeCompare(b.name));
 
   return (
@@ -69,31 +79,11 @@ export default function LeagueRail({
             label="Todos los picks"
             count={total ?? undefined}
           />
-          {topMetrics?.vipCount != null && topMetrics.vipCount > 0 && (
-            <RailButton
-              active={false}
-              onClick={() => onSelect(null)}
-              icon={<Crown className="w-3.5 h-3.5 text-amber-400" />}
-              label="VIP (edge ≥ 8%)"
-              count={topMetrics.vipCount}
-              accent="amber"
-            />
-          )}
-          {topMetrics?.premiumCount != null && topMetrics.premiumCount > 0 && (
-            <RailButton
-              active={false}
-              onClick={() => onSelect(null)}
-              icon={<Star className="w-3.5 h-3.5 text-zinc-300" />}
-              label="Premium (5-8%)"
-              count={topMetrics.premiumCount}
-            />
-          )}
-          <RailButton
-            active={false}
-            onClick={() => onSelect(null)}
-            icon={<TrendingUp className="w-3.5 h-3.5 text-emerald-400" />}
-            label="Mayor EV"
-          />
+          <RailButton active={false} href="/dashboard/tendencias" icon={<TrendingUp className="w-3.5 h-3.5 text-emerald-400" />} label="Tendencias" />
+          <RailButton active={false} href="/dashboard/estadisticas" icon={<BarChart3 className="w-3.5 h-3.5 text-sky-400" />} label="Estadísticas" />
+          <RailButton active={false} href="/dashboard/historial" icon={<History className="w-3.5 h-3.5 text-zinc-300" />} label="Historial" />
+          <RailButton active={false} href="/dashboard/parlays" icon={<Layers3 className="w-3.5 h-3.5 text-purple-300" />} label="Parlays" />
+          <RailButton active={false} href="/dashboard/favoritos" icon={<Star className="w-3.5 h-3.5 text-amber-400" />} label="Favoritos" />
         </ul>
       </div>
 
@@ -158,32 +148,60 @@ export default function LeagueRail({
               </div>
             </div>
             
-            {bankroll && (
-              <div className="mt-1 pt-2 border-t border-white/[0.06] flex items-center justify-between">
-                <div className="flex flex-col">
-                  <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-mono">Bankroll</span>
-                  <span className="text-[13px] font-mono font-bold text-white">${bankroll.current_amount.toLocaleString()}</span>
-                </div>
-                {bankroll.pnl_pct !== 0 && (
-                  <div className={`flex items-center gap-0.5 text-[10px] font-bold ${bankroll.pnl_pct > 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {bankroll.pnl_pct > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                    {bankroll.pnl_pct > 0 ? '+' : ''}{bankroll.pnl_pct.toFixed(1)}%
+            {bankrollConfigured && summary ? (
+              <div className="mt-1 pt-2 border-t border-white/[0.06] space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-mono">Bankroll</span>
+                    <span className="text-[13px] font-mono font-bold" style={{ color: summary.current_balance >= summary.initial_capital ? 'var(--color-success)' : 'var(--color-danger)' }}>
+                      ${summary.current_balance.toLocaleString()}
+                    </span>
                   </div>
-                )}
+                  <div className={`flex items-center gap-0.5 text-[10px] font-bold ${summary.roi >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {summary.roi >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                    {summary.roi >= 0 ? '+' : ''}{summary.roi.toFixed(1)}%
+                    <span className="ml-1 text-zinc-500">{summary.current_streak > 0 ? `🔥${summary.current_streak}G` : summary.current_streak < 0 ? `❄️${-summary.current_streak}P` : ''}</span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-1 text-center">
+                  <MiniStat label="Picks" value={`${summary.total_bets}`} />
+                  <MiniStat label="Acierto" value={`${summary.win_rate.toFixed(0)}%`} />
+                  <MiniStat label="Racha" value={`${summary.longest_win_streak}`} />
+                </div>
               </div>
-            )}
+            ) : summary?.configured === false ? (
+              <div className="mt-1 pt-2 border-t border-white/[0.06]">
+                <Link href="/dashboard/bankroll" className="text-[11px] text-emerald-300 hover:text-emerald-200">Configura tu bankroll →</Link>
+              </div>
+            ) : bankroll ? (
+              <div className="mt-1 pt-2 border-t border-white/[0.06] flex items-center justify-between">
+                <span className="text-[13px] font-mono font-bold text-white">${bankroll.current_amount.toLocaleString()}</span>
+              </div>
+            ) : null}
           </div>
           
           <ul className="flex flex-col gap-0.5">
             <RailButton
               active={false}
-              href="/onboarding"
+              href="/dashboard/bankroll"
               icon={<Wallet className="w-3.5 h-3.5 text-emerald-400" />}
-              label="Gestión de Bank"
+              label="Mi Bankroll completo"
             />
             <RailButton
               active={false}
-              href="/dashboard/profile"
+              href="/dashboard/estadisticas"
+              icon={<BarChart3 className="w-3.5 h-3.5 text-sky-400" />}
+              label="Estadísticas"
+            />
+            <RailButton
+              active={false}
+              href="/dashboard/historial"
+              icon={<History className="w-3.5 h-3.5 text-zinc-300" />}
+              label="Historial de picks"
+            />
+            <RailButton
+              active={false}
+              href="/dashboard/configuracion"
               icon={<Settings className="w-3.5 h-3.5 text-zinc-400" />}
               label="Configuración"
             />
@@ -197,6 +215,15 @@ export default function LeagueRail({
         </div>
       )}
     </aside>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md bg-white/[0.03] py-1">
+      <div className="text-[12px] font-mono font-bold text-white leading-none">{value}</div>
+      <div className="text-[8px] uppercase tracking-wider text-zinc-500 mt-0.5">{label}</div>
+    </div>
   );
 }
 
