@@ -3,13 +3,19 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Crown, LogOut, Trophy } from 'lucide-react';
+import { Crown, LogOut, TrendingUp, Trophy } from 'lucide-react';
 
 import { useAuth } from '@/contexts/AuthContext';
 import NotificationBell from '@/components/notifications/NotificationBell';
 
 const NAV = [
   { label: 'Todos los análisis', href: '/dashboard', match: 'exact' as const },
+  {
+    label: 'Bankroll',
+    href: '/dashboard/bankroll',
+    icon: <TrendingUp className="w-3.5 h-3.5" />,
+    match: 'prefix' as const,
+  },
   {
     label: 'Pick del día',
     href: '/dashboard/pick-del-dia',

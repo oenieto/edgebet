@@ -25,6 +25,7 @@ export interface WCTeamRow {
   form_last5: Array<'W' | 'D' | 'L'> | null;
   hot_stat: string | null;
   overall_signal: Signal;
+  data_source?: 'poisson_historical' | 'elo_estimate';
   estimated?: boolean;
 }
 
@@ -44,6 +45,7 @@ export interface WCTopPick {
 
 export interface WCDashboard {
   generated_at: string;
+  model_label: string;
   groups: WCGroup[];
   top_picks: WCTopPick[];
 }

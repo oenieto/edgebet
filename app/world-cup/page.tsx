@@ -68,7 +68,10 @@ function TeamCell({ t }: { t: WCTeamRow }) {
       <span className="text-lg leading-none">{t.flag}</span>
       <span className="font-medium text-zinc-100 truncate">{t.team}</span>
       {t.estimated && (
-        <span title="Dato estimado por modelo ELO" className="text-zinc-500 shrink-0">
+        <span
+          title="Estimación ELO — sin datos históricos suficientes"
+          className="text-zinc-500 shrink-0"
+        >
           <Zap className="w-3 h-3" />
         </span>
       )}
@@ -370,8 +373,8 @@ export default function WorldCupPage() {
             color: 'var(--color-warning)',
           }}
         >
-          ⚠ Las probabilidades son estimaciones propias basadas en forma reciente y modelo Poisson
-          — NO son datos oficiales ni cuotas de apuestas. Esto es solo para entretenimiento.
+          ⚠ Las probabilidades son estimaciones propias ({data?.model_label ?? 'Estimación ELO'}) — NO
+          son datos oficiales ni cuotas de apuestas. Esto es solo para entretenimiento.
         </div>
 
         {loading && !data ? (
@@ -427,8 +430,10 @@ export default function WorldCupPage() {
 
             {/* 7. Footer */}
             <footer className="pt-4 mt-4 border-t border-white/[0.06] text-[11px] text-zinc-500 space-y-1">
-              <p>Fuentes: world_cup.py fixtures · Modelo Poisson interno · The Odds API</p>
-              <p>Actualizado: {fmtDate(data.generated_at)}</p>
+              <p>
+                Modelo: {data.model_label} · Fuentes: football-data.co.uk + football-data.org ·
+                Actualizado: {fmtDate(data.generated_at)}
+              </p>
               <p className="text-zinc-600">
                 ⚠ Este informe es exclusivamente para entretenimiento. No constituye asesoramiento
                 de apuestas.

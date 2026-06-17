@@ -180,6 +180,16 @@ def settle_pending_picks() -> dict:
                     summary["errors"].append(f"bet {bet_id}: {exc}")
                     continue
 
+                # 4a-bis. Reflejar el resultado en el bankroll persistido.
+                # apply_transaction auto-crea el bankroll (1000 por defecto) para
+                # usuarios previos al módulo y actualiza balance + equity de hoy.
+                try:
+                    from api.bankroll_router import apply_transaction
+                    _bk_type = {"win": "bet_won", "loss": "bet_lost"}.get(result, "bet_void")
+                    apply_transaction(cur, user_id, _bk_type, pnl, note=match_str, reference_id=bet_id)
+                except Exception as exc:
+                    logger.warning("[settlement] bankroll tx bet %s falló: %s", bet_id, exc)
+
                 # Acumular P&L diario
                 today = _now_utc().date().isoformat()
                 daily_pnl[(user_id, today)] = daily_pnl.get((user_id, today), 0.0) + pnl

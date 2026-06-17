@@ -16,6 +16,7 @@ from api.user import router as user_router
 from api.stripe_webhooks import router as stripe_router
 from api.admin import router as admin_router
 from api.world_cup_router import router as world_cup_router
+from api.bankroll_router import router as bankroll_router
 from api.db import init_db
 from api.picks_service import get_leagues, get_todays_picks
 from api.parlay_builder import build_all_tiers
@@ -52,6 +53,7 @@ app.include_router(user_router)
 app.include_router(stripe_router)
 app.include_router(admin_router)
 app.include_router(world_cup_router)
+app.include_router(bankroll_router)
 
 
 class ProbabilityTriplet(BaseModel):

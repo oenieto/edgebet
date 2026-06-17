@@ -2,7 +2,7 @@
 
 import React, { Fragment, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { AnimatePresence, motion } from 'framer-motion';
+import { useRouter } from 'next/navigation';
 import {
   ArrowRight,
   Crown,
@@ -18,12 +18,12 @@ import {
 
 import LeagueRail from '@/components/shell/LeagueRail';
 import BankrollTracker from '@/components/bankroll/BankrollTracker';
+import BankrollWidget from '@/components/bankroll/BankrollWidget';
 import SmartAlerts from '@/components/bankroll/SmartAlerts';
 import PerformanceChart from '@/components/performance/PerformanceChart';
 import OddsSparkline from '@/components/picks/OddsSparkline';
 import TeamLogo from '@/components/picks/TeamLogo';
 import PicksEmptyState from '@/components/picks/PicksEmptyState';
-import MarketChips from '@/components/picks/MarketChips';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUserStore } from '@/lib/store/userStore';
 import { getLeagues, getMetrics, getPicksToday } from '@/lib/api/picks';
@@ -125,7 +125,10 @@ export default function DashboardPage() {
 
         <section className="flex flex-col gap-5 min-w-0">
           <SmartAlerts />
-          
+
+          {/* Bankroll persistido (DB) — widget compacto sobre los picks */}
+          <BankrollWidget />
+
           {/* Search */}
           <div className="relative">
             <Search className="w-4 h-4 text-zinc-500 absolute left-4 top-1/2 -translate-y-1/2" />
@@ -153,37 +156,9 @@ export default function DashboardPage() {
             <TypeChip icon={<TrendingUp className="w-3.5 h-3.5" />} label="Premium" count={tierCounts.premium} />
           </div>
 
-          {/* 3 promo banners */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <PromoBannerCard
-              label="Bienvenida"
-              title="Hasta €40 en picks VIP gratis"
-              caption="Primeros 7 días con todos los picks edge ≥ 8%."
-              cta="Activar"
-              href="/pricing"
-              tone="neutral"
-              badge={<Sparkles className="w-4 h-4" />}
-            />
-            <PromoBannerCard
-              label="Exclusivo"
-              title="Pick del día"
-              caption="Un único pick curado · EV ≥ 12% · histórico 68% hit rate."
-              cta={userTier === 'vip' ? 'Ver pick' : 'Desbloquear'}
-              href={userTier === 'vip' ? '/dashboard/pick-del-dia' : '/pricing'}
-              tone="amber"
-              badge={<Crown className="w-4 h-4" />}
-              locked={userTier !== 'vip'}
-            />
-            <PromoBannerCard
-              label="Upgrade"
-              title="Potencia tu bankroll"
-              caption="Pro €19/mes · VIP €79/mes · Kelly + alertas Telegram."
-              cta="Ver planes"
-              href="/pricing"
-              tone="white"
-              badge={<TrendingUp className="w-4 h-4" />}
-            />
-          </div>
+          {/* Promo banners — adaptados al tier del usuario */}
+          <PromoBanners userTier={userTier} />
+
 
           {/* Metrics row */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
@@ -355,10 +330,20 @@ function generateOddsHistory(currentOdds: number, pickId: string): number[] {
 
 function buildHighlights(picks: Pick[]) {
   if (!picks.length) return null;
-  const topEv = [...picks].sort((a, b) => (b.evPct ?? 0) - (a.evPct ?? 0))[0];
+  // Solo considerar picks con mercado verificado para Mayor EV / Mejor Edge,
+  // si no son ruido del modelo vs cuotas sintéticas. Confianza y stake sí
+  // aplican a todos porque solo dependen de nuestra probabilidad.
+  const verified = picks.filter((p) => p.marketVerified);
+  const topEv = verified.length
+    ? [...verified].sort((a, b) => (b.evPct ?? 0) - (a.evPct ?? 0))[0]
+    : undefined;
   const topConfidence = [...picks].sort((a, b) => b.confidence - a.confidence)[0];
-  const topEdge = [...picks].sort((a, b) => Math.abs(b.edgePp ?? 0) - Math.abs(a.edgePp ?? 0))[0];
-  const topStake = [...picks].sort((a, b) => b.suggestedStake - a.suggestedStake)[0];
+  const topEdge = verified.length
+    ? [...verified].sort((a, b) => Math.abs(b.edgePp ?? 0) - Math.abs(a.edgePp ?? 0))[0]
+    : undefined;
+  const topStake = verified.length
+    ? [...verified].sort((a, b) => b.suggestedStake - a.suggestedStake)[0]
+    : undefined;
   return { topEv, topConfidence, topEdge, topStake };
 }
 
@@ -416,6 +401,96 @@ function TypeChip({
     <button type="button" className={className}>
       {content}
     </button>
+  );
+}
+
+function PromoBanners({ userTier }: { userTier: 'free' | 'pro' | 'vip' }) {
+  // Cada tier ve banners útiles para SU estado actual. Nunca le mostramos
+  // pitches de upgrade a quien ya está en el plan más alto, y nunca le
+  // mostramos "Activar bienvenida" a quien ya tiene cuenta activa.
+  if (userTier === 'vip') {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <PromoBannerCard
+          label="Tu pick del día"
+          title="Pick exclusivo VIP de hoy"
+          caption="EV mínimo +8%, alta convicción de las 3 fuentes."
+          cta="Ver pick"
+          href="/dashboard/pick-del-dia"
+          tone="amber"
+          badge={<Crown className="w-4 h-4" />}
+        />
+        <PromoBannerCard
+          label="Gestión"
+          title="Bankroll y alertas"
+          caption="Configura Kelly, límites diarios/semanales y alertas Telegram."
+          cta="Configurar"
+          href="/dashboard/profile"
+          tone="white"
+          badge={<TrendingUp className="w-4 h-4" />}
+        />
+      </div>
+    );
+  }
+
+  if (userTier === 'pro') {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <PromoBannerCard
+          label="Tu pick del día"
+          title="Bloqueado — exclusivo VIP"
+          caption="Edge ≥ 12% con consenso de las 3 fuentes. Disponible solo para VIP."
+          cta="Subir a VIP"
+          href="/pricing"
+          tone="amber"
+          badge={<Crown className="w-4 h-4" />}
+          locked
+        />
+        <PromoBannerCard
+          label="Gestión"
+          title="Bankroll y alertas"
+          caption="Configura Kelly, límites diarios y alertas Telegram."
+          cta="Configurar"
+          href="/dashboard/profile"
+          tone="white"
+          badge={<TrendingUp className="w-4 h-4" />}
+        />
+      </div>
+    );
+  }
+
+  // free
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <PromoBannerCard
+        label="Cuenta gratis"
+        title="2–3 picks por semana"
+        caption="Acceso a picks marcados como Free. El motor analiza igual, solo limitamos volumen."
+        cta="Ver planes"
+        href="/pricing"
+        tone="neutral"
+        badge={<Sparkles className="w-4 h-4" />}
+      />
+      <PromoBannerCard
+        label="Pick del día"
+        title="Bloqueado para Free"
+        caption="Un pick curado por día con edge ≥ 12%. Solo VIP."
+        cta="Desbloquear"
+        href="/pricing"
+        tone="amber"
+        badge={<Crown className="w-4 h-4" />}
+        locked
+      />
+      <PromoBannerCard
+        label="Upgrade"
+        title="Potencia tu bankroll"
+        caption="Pro $19/mes desbloquea picks Premium + tracking Kelly + alertas."
+        cta="Ver planes"
+        href="/pricing"
+        tone="white"
+        badge={<TrendingUp className="w-4 h-4" />}
+      />
+    </div>
   );
 }
 
@@ -506,15 +581,23 @@ function MetricsRow({
       />
       <MetricCard
         label="Accuracy 30d"
-        value={metrics ? `${(metrics.accuracy_30d * 100).toFixed(1)}%` : '—'}
-        tone="emerald"
-        sub="L30 auditado"
+        value={
+          metrics?.accuracy_30d != null
+            ? `${(metrics.accuracy_30d * 100).toFixed(1)}%`
+            : '—'
+        }
+        tone={metrics?.accuracy_30d != null ? 'emerald' : 'white'}
+        sub={metrics?.accuracy_30d != null ? 'L30 auditado' : 'Sin histórico aún'}
       />
       <MetricCard
         label="ROI mensual"
-        value={metrics ? `+${(metrics.roi_monthly * 100).toFixed(1)}%` : '—'}
-        tone="emerald"
-        sub="vs bankroll inicial"
+        value={
+          metrics?.roi_monthly != null
+            ? `${metrics.roi_monthly >= 0 ? '+' : ''}${(metrics.roi_monthly * 100).toFixed(1)}%`
+            : '—'
+        }
+        tone={metrics?.roi_monthly != null ? 'emerald' : 'white'}
+        sub={metrics?.roi_monthly != null ? 'vs bankroll inicial' : 'Sin histórico aún'}
       />
       <MetricCard
         label="Divergencias"
@@ -614,7 +697,7 @@ function PicksTable({
   picks: Pick[];
   userTier: 'free' | 'pro' | 'vip';
 }) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const router = useRouter();
   // Suscripción reactiva a Zustand: cuando el user cambia bankroll o stake_pct
   // en /onboarding o /perfil, esta tabla se re-renderiza automáticamente y
   // los valores Kelly por pick se recalculan al instante.
@@ -684,7 +767,6 @@ function PicksTable({
             </tr>
             {group.picks.map((p) => {
               const locked = shouldLock(p.status, userTier);
-              const isExpanded = expandedId === p.id;
               const dateObj = new Date(p.kickoff);
               const timeStr = isNaN(dateObj.getTime()) ? '' : dateObj.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
@@ -715,7 +797,7 @@ function PicksTable({
             return (
               <Fragment key={p.id}>
               <tr
-                onClick={() => { if (!locked) setExpandedId(isExpanded ? null : p.id) }}
+                onClick={() => { if (!locked) router.push(`/dashboard/pick/${p.id}`) }}
                 className={`border-t border-white/[0.04] transition-colors ${!locked ? 'cursor-pointer hover:bg-white/[0.02]' : ''}`}
               >
                 <td className="px-5 py-3">
@@ -772,21 +854,32 @@ function PicksTable({
                   </span>
                 </td>
                 <td className="px-3 py-3 text-right hidden md:table-cell">
-                  <span
-                    className={`font-mono text-[12.5px] font-bold ${
-                      (p.edgePp ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'
-                    }`}
-                  >
-                    {(p.edgePp ?? 0) >= 0 ? '+' : ''}
-                    {p.edgePp?.toFixed(1) ?? '—'}pp
-                  </span>
+                  {p.marketVerified && p.edgePp != null ? (
+                    <span
+                      className={`font-mono text-[12.5px] font-bold ${
+                        p.edgePp >= 0 ? 'text-emerald-400' : 'text-red-400'
+                      }`}
+                    >
+                      {p.edgePp >= 0 ? '+' : ''}
+                      {p.edgePp.toFixed(1)}pp
+                    </span>
+                  ) : (
+                    <span className="font-mono text-[11px] text-zinc-600" title="Sin línea de mercado verificada">
+                      —
+                    </span>
+                  )}
                 </td>
                 <td className="px-3 py-3 text-right">
                   {locked ? (
                     <span className="font-mono text-[12.5px] text-zinc-600 blur-sm select-none">+99.9%</span>
+                  ) : p.marketVerified && p.evPct != null ? (
+                    <span className={`font-mono text-[12.5px] font-bold ${p.evPct >= 0 ? 'text-amber-300' : 'text-zinc-500'}`}>
+                      {p.evPct >= 0 ? '+' : ''}
+                      {p.evPct.toFixed(1)}%
+                    </span>
                   ) : (
-                    <span className="font-mono text-[12.5px] font-bold text-amber-300">
-                      +{p.evPct?.toFixed(1) ?? '—'}%
+                    <span className="font-mono text-[11px] text-zinc-600" title="Sin línea de mercado verificada">
+                      —
                     </span>
                   )}
                 </td>
@@ -815,46 +908,20 @@ function PicksTable({
                       <Lock className="w-3 h-3" />
                       Desbloquear
                     </Link>
-                  ) : (
+                  ) : p.marketVerified && p.odds != null ? (
                     <span className="inline-flex items-center h-[30px] px-3 rounded-md bg-white/[0.06] border border-white/[0.1] font-mono font-bold text-[13px] text-white">
-                      {p.odds?.toFixed(2) ?? '—'}
+                      {p.odds.toFixed(2)}
+                    </span>
+                  ) : (
+                    <span
+                      className="inline-flex items-center h-[30px] px-3 rounded-md bg-white/[0.02] border border-dashed border-white/[0.08] font-mono text-[11px] text-zinc-500"
+                      title="No hay cuota de mercado verificada. Pick informativo del modelo."
+                    >
+                      sin línea
                     </span>
                   )}
                 </td>
               </tr>
-              <AnimatePresence initial={false}>
-                {isExpanded && !locked && (
-                  <motion.tr
-                    key={`${p.id}-detail`}
-                    className="bg-black/20 border-t border-white/[0.02]"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.18, ease: 'easeOut' }}
-                  >
-                    <td colSpan={9} className="px-5 py-0">
-                      <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        transition={{ duration: 0.22, ease: 'easeOut' }}
-                        style={{ overflow: 'hidden' }}
-                      >
-                        <div className="py-5 space-y-5">
-                          <MarketChips pick={p} profile={userRiskProfile} />
-                          <div className="flex items-start gap-3 pt-1 border-t border-white/[0.04]">
-                            <Sparkles className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
-                            <div className="font-sans text-[13px] text-zinc-300 leading-relaxed max-w-4xl">
-                              <span className="text-white font-semibold mr-1">Análisis IA:</span>
-                              {p.aiReasoning}
-                            </div>
-                          </div>
-                        </div>
-                      </motion.div>
-                    </td>
-                  </motion.tr>
-                )}
-              </AnimatePresence>
               </Fragment>
             );
           })}

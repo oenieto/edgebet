@@ -382,6 +382,45 @@ CREATE INDEX IF NOT EXISTS idx_predictions_match_date ON predictions(match_date)
 CREATE INDEX IF NOT EXISTS idx_predictions_fixture ON predictions(fixture_id);
 
 -- ============================================================
+-- BANKROLL — capital, movimientos y curva de equity por usuario
+-- ============================================================
+-- Nota: NOW() no existe en SQLite; usamos CURRENT_TIMESTAMP. FLOAT→REAL para
+-- mantener la convención del schema (db.py traduce REAL→FLOAT en SQLite).
+CREATE TABLE IF NOT EXISTS bankroll (
+    id              SERIAL PRIMARY KEY,
+    user_id         INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    initial_capital REAL NOT NULL DEFAULT 1000.0,
+    current_balance REAL NOT NULL DEFAULT 1000.0,
+    currency        TEXT NOT NULL DEFAULT 'USD',
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS bankroll_transactions (
+    id            SERIAL PRIMARY KEY,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type          TEXT NOT NULL,   -- deposit | withdrawal | bet_placed | bet_won | bet_lost | bet_void | adjustment
+    amount        REAL NOT NULL,   -- positivo = crédito, negativo = débito
+    balance_after REAL NOT NULL,
+    reference_id  INTEGER,         -- FK lógica a user_bets.id cuando type = bet_*
+    note          TEXT,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_bankroll_tx_user ON bankroll_transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_bankroll_tx_created ON bankroll_transactions(created_at);
+
+CREATE TABLE IF NOT EXISTS bankroll_equity_log (
+    id            SERIAL PRIMARY KEY,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    snapshot_date DATE NOT NULL,
+    balance       REAL NOT NULL,
+    UNIQUE(user_id, snapshot_date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_bankroll_equity_user ON bankroll_equity_log(user_id);
+
+-- ============================================================
 -- PLAYER STATS (for player props)
 -- ============================================================
 CREATE TABLE IF NOT EXISTS player_stats (
