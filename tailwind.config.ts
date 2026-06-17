@@ -39,6 +39,7 @@ const config: Config = {
           variant: 'var(--color-on-surface-variant)',
         },
         'on-secondary-container': 'var(--color-on-secondary-container)',
+        success: 'var(--color-success)',
         warning: 'var(--color-warning)',
         danger: 'var(--color-danger)',
         error: 'var(--color-error)',

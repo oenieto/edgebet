@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Crown, LogOut } from 'lucide-react';
+import { Crown, LogOut, Trophy } from 'lucide-react';
 
 import { useAuth } from '@/contexts/AuthContext';
 import NotificationBell from '@/components/notifications/NotificationBell';
@@ -19,7 +19,23 @@ const NAV = [
   { label: 'Promos', href: '/dashboard/promos', match: 'prefix' as const },
   { label: 'Parlays', href: '/dashboard/parlays', match: 'prefix' as const },
   { label: 'Historial', href: '/dashboard/history', match: 'prefix' as const },
+  {
+    label: 'Mundial 2026',
+    href: '/world-cup',
+    icon: <Trophy className="w-3.5 h-3.5" />,
+    match: 'prefix' as const,
+    live: true,
+  },
 ];
+
+function LiveDot() {
+  return (
+    <span className="relative inline-flex w-2 h-2 ml-0.5">
+      <span className="absolute inline-flex w-full h-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
+      <span className="relative inline-flex w-2 h-2 rounded-full bg-emerald-500" />
+    </span>
+  );
+}
 
 export default function AppHeader() {
   const pathname = usePathname();
@@ -59,6 +75,7 @@ export default function AppHeader() {
                 >
                   {item.icon}
                   {item.label}
+                  {(item as { live?: boolean }).live && <LiveDot />}
                   {active && (
                     <span
                       className={`absolute -bottom-[1px] left-3 right-3 h-[2px] rounded-full ${
@@ -104,6 +121,7 @@ export default function AppHeader() {
               >
                 {item.icon}
                 {item.label}
+                {(item as { live?: boolean }).live && <LiveDot />}
               </Link>
             );
           })}

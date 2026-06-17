@@ -14,6 +14,8 @@ from pydantic import BaseModel
 from api.auth import UserPublic, get_current_user, router as auth_router
 from api.user import router as user_router
 from api.stripe_webhooks import router as stripe_router
+from api.admin import router as admin_router
+from api.world_cup_router import router as world_cup_router
 from api.db import init_db
 from api.picks_service import get_leagues, get_todays_picks
 from api.parlay_builder import build_all_tiers
@@ -48,6 +50,8 @@ def _startup() -> None:
 app.include_router(auth_router)
 app.include_router(user_router)
 app.include_router(stripe_router)
+app.include_router(admin_router)
+app.include_router(world_cup_router)
 
 
 class ProbabilityTriplet(BaseModel):
@@ -136,7 +140,7 @@ def integrations_status() -> dict:
     from api.db import USE_SQLITE
     return {
         "database": {"type": "sqlite" if USE_SQLITE else "postgresql", "status": "connected"},
-        "anthropic": {"configured": has_anthropic, "model": os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-20250514")},
+        "anthropic": {"configured": has_anthropic, "model": os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")},
         "odds_api": {"configured": has_odds, "provider": "the-odds-api.com"},
         "stripe": {"configured": has_stripe},
         "telegram": {"configured": has_telegram},
@@ -337,11 +341,83 @@ def leagues() -> list[dict]:
 
 @app.get("/metrics")
 def metrics() -> dict:
+    """
+    Métricas reales calculadas desde `user_bets` resueltos en los últimos 30 días.
+    Si no hay apuestas registradas (settlement engine sin correr), devuelve
+    `null` en cada campo para que el frontend muestre "sin histórico aún" en
+    lugar de números inventados.
+
+    accuracy_30d  = wins / (wins + losses) en los últimos 30 días
+    roi_monthly   = (Σ pnl) / (Σ stake) en los últimos 30 días
+    verified_picks= total de apuestas resueltas con `marketVerified` (todas
+                    las settled cuentan como verified hoy — el flag está en
+                    el pick, no en la apuesta)
+    active_divergences = picks de `/picks/today` con sourcesAgree=False
+                         (siempre real, viene del pool en memoria)
+    """
+    from datetime import datetime, timedelta
+    from api.db import connect
+    from api.picks_service import _picks_cache
+
+    cutoff = (datetime.utcnow() - timedelta(days=30)).isoformat()
+
+    accuracy: float | None = None
+    roi: float | None = None
+    verified_count: int = 0
+
+    try:
+        with connect() as cur:
+            cur.execute(
+                """
+                SELECT
+                    SUM(CASE WHEN result='win'  THEN 1 ELSE 0 END) AS wins,
+                    SUM(CASE WHEN result='loss' THEN 1 ELSE 0 END) AS losses,
+                    SUM(CASE WHEN result IN ('win','loss') THEN stake ELSE 0 END) AS total_stake,
+                    SUM(CASE WHEN result IN ('win','loss') THEN COALESCE(pnl, 0) ELSE 0 END) AS total_pnl,
+                    SUM(CASE WHEN result IN ('win','loss') THEN 1 ELSE 0 END) AS resolved
+                FROM user_bets
+                WHERE settled_at >= %s
+                """,
+                (cutoff,),
+            )
+            raw_row = cur.fetchone()
+            # SQLite devuelve sqlite3.Row (sin .get), Postgres devuelve dict —
+            # casteamos a dict para compatibilidad de ambos.
+            row = dict(raw_row) if raw_row else {}
+            wins = int(row.get("wins") or 0)
+            losses = int(row.get("losses") or 0)
+            total_stake = float(row.get("total_stake") or 0)
+            total_pnl = float(row.get("total_pnl") or 0)
+            resolved = int(row.get("resolved") or 0)
+            if wins + losses > 0:
+                accuracy = wins / (wins + losses)
+            if total_stake > 0:
+                roi = total_pnl / total_stake
+            verified_count = resolved
+    except Exception as exc:
+        # DB no disponible — devolvemos null en todo en lugar de mentir
+        print(f"[metrics] no pude calcular métricas: {exc}")
+
+    # Divergencias activas = picks de hoy donde las 3 fuentes no concuerdan.
+    # Leemos SOLO el cache en memoria — nunca disparamos recompute desde el
+    # endpoint de métricas porque eso bloquearía 30s+. Si el pool no está
+    # caliente devolvemos 0 (el dashboard lo mostrará como "0 activas").
+    divergences = 0
+    try:
+        cached = _picks_cache.get("__all__")
+        if cached:
+            _, picks_pool = cached
+            for p in picks_pool:
+                if p.get("sourcesAgree") is False:
+                    divergences += 1
+    except Exception:
+        pass
+
     return {
-        "accuracy_30d": 0.614,
-        "roi_monthly": 0.248,
-        "verified_picks": 847,
-        "active_divergences": 8,
+        "accuracy_30d": accuracy,
+        "roi_monthly": roi,
+        "verified_picks": verified_count,
+        "active_divergences": divergences,
     }
 
 
