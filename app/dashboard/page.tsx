@@ -14,7 +14,11 @@ import {
   Target,
   TrendingUp,
   Zap,
+  LayoutGrid,
+  List,
 } from 'lucide-react';
+
+import { getTeamFlag } from '@/lib/team-flags';
 
 import LeagueRail from '@/components/shell/LeagueRail';
 import BankrollWidget from '@/components/bankroll/BankrollWidget';
@@ -40,6 +44,20 @@ export default function DashboardPage() {
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+
+  useEffect(() => {
+    const saved = localStorage.getItem('edgebet_picks_view');
+    if (saved === 'grid' || saved === 'list') {
+      setViewMode(saved);
+    }
+  }, []);
+
+  const handleViewChange = (mode: 'grid' | 'list') => {
+    setViewMode(mode);
+    localStorage.setItem('edgebet_picks_view', mode);
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -162,30 +180,72 @@ export default function DashboardPage() {
             <BankrollWidget />
           </div>
 
-          {/* SECCIÓN 3 — Picks del día (grid compacto) */}
+          {/* SECCIÓN 3 — Picks del día (grid compacto / lista horizontal) */}
           <div>
             <div className="flex items-center justify-between mb-3">
-              <SectionLabel>Picks del día</SectionLabel>
-              {filteredPicks.length > 6 && (
-                <Link href="/dashboard/historial" className="text-[12px] font-semibold text-zinc-400 hover:text-white flex items-center gap-1">
-                  Ver todos <ArrowRight className="w-3.5 h-3.5" />
-                </Link>
-              )}
+              <div className="flex items-center gap-4">
+                <SectionLabel>Picks del día</SectionLabel>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="bg-[#111114] border border-white/[0.08] p-0.5 rounded-lg flex items-center gap-0.5">
+                  <button
+                    onClick={() => handleViewChange('grid')}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
+                      viewMode === 'grid'
+                        ? 'bg-white text-black'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                    <span>Grid</span>
+                  </button>
+                  <button
+                    onClick={() => handleViewChange('list')}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
+                      viewMode === 'list'
+                        ? 'bg-white text-black'
+                        : 'text-zinc-400 hover:text-white'
+                    }`}
+                  >
+                    <List className="w-3.5 h-3.5" />
+                    <span>Lista</span>
+                  </button>
+                </div>
+                {filteredPicks.length > 6 && (
+                  <Link href="/dashboard/historial" className="text-[12px] font-semibold text-zinc-400 hover:text-white flex items-center gap-1">
+                    Ver todos <ArrowRight className="w-3.5 h-3.5" />
+                  </Link>
+                )}
+              </div>
             </div>
             {loading ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {Array.from({ length: 6 }).map((_, i) => (
-                  <div key={i} className="h-[120px] rounded-xl bg-white/[0.04] animate-pulse" />
-                ))}
-              </div>
+              viewMode === 'grid' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="h-[120px] rounded-xl bg-white/[0.04] animate-pulse" />
+                  ))}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="h-[72px] rounded-xl bg-white/[0.04] animate-pulse" />
+                  ))}
+                </div>
+              )
             ) : error ? (
               <PicksEmptyState variant="error" description={error} ctaHref="/dashboard" ctaLabel="Reintentar" />
             ) : filteredPicks.length === 0 ? (
               <PicksEmptyState variant={picks && picks.length === 0 ? 'searching' : 'no-results'} />
-            ) : (
+            ) : viewMode === 'grid' ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {filteredPicks.slice(0, 9).map((p) => (
                   <CompactPickCard key={p.id} pick={p} />
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col rounded-xl overflow-hidden border border-white/[0.06]">
+                {filteredPicks.slice(0, 9).map((p) => (
+                  <ListPickRow key={p.id} pick={p} />
                 ))}
               </div>
             )}
@@ -889,6 +949,112 @@ function predictionLabel(p: Pick): string {
   return p.prediction;
 }
 
+function renderTournamentBadge(league: string, isList: boolean = false) {
+  let icon = '⚽';
+  let label = league;
+  let pillClass = 'bg-[#111114] text-zinc-400 border-white/[0.08]';
+
+  if (league === 'FIFA World Cup 2026') {
+    icon = '🏆';
+    label = 'World Cup 2026';
+    pillClass = 'bg-amber-500/10 text-amber-300 border-amber-500/20';
+  } else if (league === 'Premier League') {
+    icon = '🏴';
+    label = 'Premier League';
+    pillClass = 'bg-purple-500/10 text-purple-300 border-purple-500/20';
+  } else if (league === 'La Liga') {
+    icon = '🇪🇸';
+    label = 'La Liga';
+    pillClass = 'bg-orange-500/10 text-orange-300 border-orange-500/20';
+  } else if (league === 'Liga MX') {
+    icon = '🇲🇽';
+    label = 'Liga MX';
+    pillClass = 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20';
+  } else if (league === 'Bundesliga') {
+    icon = '🇩🇪';
+    label = 'Bundesliga';
+    pillClass = 'bg-red-500/10 text-red-300 border-red-500/20';
+  } else if (league === 'Serie A') {
+    icon = '🇮🇹';
+    label = 'Serie A';
+    pillClass = 'bg-blue-500/10 text-blue-300 border-blue-500/20';
+  } else if (league === 'Ligue 1') {
+    icon = '🇫🇷';
+    label = 'Ligue 1';
+    pillClass = 'bg-teal-500/10 text-teal-300 border-teal-500/20';
+  } else if (league === 'UEFA Champions League') {
+    icon = '⭐';
+    label = 'Champions';
+    pillClass = 'bg-blue-950/40 text-blue-300 border-blue-800/30';
+  }
+
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-medium leading-none ${pillClass}`}>
+      <span>{icon}</span>
+      <span className={isList ? 'hidden sm:inline' : ''}>{label}</span>
+    </span>
+  );
+}
+
+function ListPickRow({ pick }: { pick: Pick }) {
+  const seguro = (pick.confidence ?? 0) >= 60 || pick.marketVerified;
+  const ev = pick.evPct;
+  const homeFlag = getTeamFlag(pick.homeTeam);
+  const awayFlag = getTeamFlag(pick.awayTeam);
+
+  return (
+    <Link
+      href={`/dashboard/pick/${pick.id}`}
+      className="flex items-center justify-between gap-4 h-[72px] px-4 border-b border-white/[0.04] bg-[#111114] hover:bg-white/[0.02] transition-colors"
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="flex-shrink-0">
+          {renderTournamentBadge(pick.league, true)}
+        </div>
+        <div className="font-sans font-semibold text-white text-[14px] sm:text-[15px] truncate flex items-center gap-x-1">
+          <span className="inline-flex items-center gap-1">
+            {homeFlag && <span className="text-[1.15em] leading-none">{homeFlag}</span>}
+            <span>{pick.homeTeam}</span>
+          </span>
+          <span className="text-zinc-500 font-normal text-xs mx-1">vs</span>
+          <span className="inline-flex items-center gap-1">
+            {awayFlag && <span className="text-[1.15em] leading-none">{awayFlag}</span>}
+            <span>{pick.awayTeam}</span>
+          </span>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0">
+        <div className="hidden sm:block bg-white/[0.04] px-2.5 py-1 rounded-md border border-white/[0.06]">
+          <span className="text-[11px] text-zinc-400 font-medium">{predictionLabel(pick)}</span>
+        </div>
+
+        {ev !== null && ev !== 0 && (
+          <span className="text-[12px] font-mono font-bold" style={{ color: ev > 0 ? 'var(--color-success)' : 'var(--color-danger)' }}>
+            {ev > 0 ? '+' : ''}{ev.toFixed(1)}% EV
+          </span>
+        )}
+
+        <span
+          className="text-[9px] sm:text-[10px] font-semibold rounded-full px-2 py-0.5"
+          style={
+            seguro
+              ? { backgroundColor: 'color-mix(in srgb, var(--color-success) 15%, transparent)', color: 'var(--color-success)' }
+              : { backgroundColor: 'color-mix(in srgb, var(--color-warning) 15%, transparent)', color: 'var(--color-warning)' }
+          }
+        >
+          {seguro ? 'SEGURO' : 'RIESGO'}
+        </span>
+
+        <span className="text-zinc-500 group-hover:text-white flex items-center gap-0.5 text-[12px] font-semibold">
+          <span className="hidden sm:inline">Ver</span>
+          <ArrowRight className="w-3.5 h-3.5" />
+        </span>
+      </div>
+    </Link>
+  );
+}
+
 function HeroBestPick({ pick, loading }: { pick: Pick | null; loading: boolean }) {
   if (loading) {
     return <div className="h-[120px] rounded-xl bg-white/[0.04] animate-pulse" />;
@@ -901,6 +1067,10 @@ function HeroBestPick({ pick, loading }: { pick: Pick | null; loading: boolean }
     );
   }
   const ev = pick.evPct;
+  const homeFlag = getTeamFlag(pick.homeTeam);
+  const awayFlag = getTeamFlag(pick.awayTeam);
+  const isHighVariance = pick.prediction === 'away' && ev != null && ev > 50;
+
   return (
     <Link
       href={`/dashboard/pick/${pick.id}`}
@@ -916,18 +1086,33 @@ function HeroBestPick({ pick, loading }: { pick: Pick | null; loading: boolean }
               </span>
             )}
           </div>
-          <div className="font-sans font-bold text-white text-[18px] truncate">
-            {pick.homeTeam} <span className="text-zinc-600">vs</span> {pick.awayTeam}
+          <div className="font-sans font-bold text-white text-[18px] truncate flex items-center flex-wrap gap-x-1">
+            <span className="inline-flex items-center gap-1">
+              {homeFlag && <span className="text-[1.15em] leading-none">{homeFlag}</span>}
+              <span>{pick.homeTeam}</span>
+            </span>
+            <span className="text-zinc-600 font-normal text-xs mx-1">vs</span>
+            <span className="inline-flex items-center gap-1">
+              {awayFlag && <span className="text-[1.15em] leading-none">{awayFlag}</span>}
+              <span>{pick.awayTeam}</span>
+            </span>
           </div>
           <div className="text-[13px] text-zinc-400 mt-0.5">
             Recomendación: <span className="text-zinc-200 font-semibold">{predictionLabel(pick)}</span>
           </div>
         </div>
-        <div className="flex items-center gap-4 shrink-0">
-          <div className="text-right">
-            <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">EV</div>
-            <div className="font-mono font-bold text-xl" style={{ color: 'var(--color-success)' }}>
-              {ev != null ? `${ev >= 0 ? '+' : ''}${ev.toFixed(1)}%` : '—'}
+        <div className="flex items-center gap-4 shrink-0 flex-wrap">
+          <div className="text-right flex items-center gap-2">
+            {isHighVariance && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 text-[10px] font-semibold h-[22px]">
+                ⚠️ Alta varianza
+              </span>
+            )}
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">EV</div>
+              <div className="font-mono font-bold text-xl" style={{ color: 'var(--color-success)' }}>
+                {ev != null ? `${ev >= 0 ? '+' : ''}${ev.toFixed(1)}%` : '—'}
+              </div>
             </div>
           </div>
           <span className="text-sm font-semibold text-zinc-300 group-hover:text-white flex items-center gap-1">
@@ -942,13 +1127,15 @@ function HeroBestPick({ pick, loading }: { pick: Pick | null; loading: boolean }
 function CompactPickCard({ pick }: { pick: Pick }) {
   const seguro = (pick.confidence ?? 0) >= 60 || pick.marketVerified;
   const ev = pick.evPct;
+  const homeFlag = getTeamFlag(pick.homeTeam);
+  const awayFlag = getTeamFlag(pick.awayTeam);
   return (
     <Link
       href={`/dashboard/pick/${pick.id}`}
       className="block rounded-xl border border-white/[0.06] bg-[#111114] hover:border-white/15 p-4 transition-colors min-h-[120px]"
     >
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500 truncate">{pick.league}</span>
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+        {renderTournamentBadge(pick.league)}
         <span
           className="text-[10px] font-semibold rounded-full px-2 py-0.5"
           style={
@@ -960,14 +1147,22 @@ function CompactPickCard({ pick }: { pick: Pick }) {
           {seguro ? 'SEGURO' : 'RIESGO'}
         </span>
       </div>
-      <div className="font-sans font-semibold text-white text-[14px] leading-tight mb-2">
-        {pick.homeTeam} <span className="text-zinc-600">vs</span> {pick.awayTeam}
+      <div className="font-sans font-semibold text-white text-[15px] leading-tight mb-2 flex items-center flex-wrap gap-x-1">
+        <span className="inline-flex items-center gap-1">
+          {homeFlag && <span className="text-[1.15em] leading-none">{homeFlag}</span>}
+          <span>{pick.homeTeam}</span>
+        </span>
+        <span className="text-zinc-500 font-normal text-xs mx-1">vs</span>
+        <span className="inline-flex items-center gap-1">
+          {awayFlag && <span className="text-[1.15em] leading-none">{awayFlag}</span>}
+          <span>{pick.awayTeam}</span>
+        </span>
       </div>
-      <div className="flex items-center justify-between">
-        <span className="text-[12px] text-zinc-400">{predictionLabel(pick)}</span>
-        {ev != null && (
-          <span className="text-[12px] font-mono font-bold" style={{ color: ev >= 0 ? 'var(--color-success)' : 'var(--color-danger)' }}>
-            {ev >= 0 ? '+' : ''}{ev.toFixed(1)}% EV
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[12px] text-zinc-400 truncate">{predictionLabel(pick)}</span>
+        {ev !== null && ev !== 0 && (
+          <span className="text-[12px] font-mono font-bold flex-shrink-0" style={{ color: ev > 0 ? 'var(--color-success)' : 'var(--color-danger)' }}>
+            {ev > 0 ? '+' : ''}{ev.toFixed(1)}% EV
           </span>
         )}
       </div>

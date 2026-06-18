@@ -2,11 +2,60 @@
 
 import { CheckCircle2, Lock, Target } from 'lucide-react';
 import type { Pick, PickResult } from '@/types';
+import { getTeamFlag } from '@/lib/team-flags';
 
 interface PickCardProps {
   pick: Pick;
   locked?: boolean;
 }
+
+function TournamentBadge({ league }: { league: string }) {
+  let icon = '⚽';
+  let label = league;
+  let pillClass = 'bg-[#111114] text-zinc-400 border-white/[0.08]';
+
+  if (league === 'FIFA World Cup 2026') {
+    icon = '🏆';
+    label = 'World Cup 2026';
+    pillClass = 'bg-amber-500/10 text-amber-300 border-amber-500/20';
+  } else if (league === 'Premier League') {
+    icon = '🏴';
+    label = 'Premier League';
+    pillClass = 'bg-purple-500/10 text-purple-300 border-purple-500/20';
+  } else if (league === 'La Liga') {
+    icon = '🇪🇸';
+    label = 'La Liga';
+    pillClass = 'bg-orange-500/10 text-orange-300 border-orange-500/20';
+  } else if (league === 'Liga MX') {
+    icon = '🇲🇽';
+    label = 'Liga MX';
+    pillClass = 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20';
+  } else if (league === 'Bundesliga') {
+    icon = '🇩🇪';
+    label = 'Bundesliga';
+    pillClass = 'bg-red-500/10 text-red-300 border-red-500/20';
+  } else if (league === 'Serie A') {
+    icon = '🇮🇹';
+    label = 'Serie A';
+    pillClass = 'bg-blue-500/10 text-blue-300 border-blue-500/20';
+  } else if (league === 'Ligue 1') {
+    icon = '🇫🇷';
+    label = 'Ligue 1';
+    pillClass = 'bg-teal-500/10 text-teal-300 border-teal-500/20';
+  } else if (league === 'UEFA Champions League') {
+    icon = '⭐';
+    label = 'Champions';
+    pillClass = 'bg-blue-950/40 text-blue-300 border-blue-800/30';
+  }
+
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-[10px] font-medium leading-none ${pillClass}`}>
+      <span>{icon}</span>
+      <span>{label}</span>
+    </span>
+  );
+}
+
 
 const predictionLabel: Record<PickResult, string> = {
   home: 'Gana local',
@@ -73,17 +122,28 @@ export default function PickCard({ pick, locked = false }: PickCardProps) {
         )}
       </div>
 
-      <div className="flex items-center gap-2 mb-4 pt-2 text-tertiary">
+      <div className="flex items-center gap-2 mb-4 pt-2 text-tertiary flex-wrap">
         <Target className="w-4 h-4" />
-        <span className="text-[12px] font-medium">
-          {pick.league} · {formatKickoff(pick.kickoff)}
+        <TournamentBadge league={pick.league} />
+        <span className="text-[12px] font-medium text-zinc-500">
+          · {formatKickoff(pick.kickoff)}
         </span>
       </div>
 
-      <div className="flex items-center justify-between mb-5">
-        <div className="font-sans font-bold text-[18px] text-on-surface">{pick.homeTeam}</div>
-        <span className="text-tertiary font-mono text-[11px]">vs</span>
-        <div className="font-sans font-bold text-[18px] text-on-surface text-right">{pick.awayTeam}</div>
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-2">
+        <div className="font-sans font-semibold text-lg text-on-surface flex items-center gap-1.5">
+          {getTeamFlag(pick.homeTeam) && (
+            <span className="text-[1.25em] leading-none">{getTeamFlag(pick.homeTeam)}</span>
+          )}
+          <span>{pick.homeTeam}</span>
+        </div>
+        <span className="text-xs text-zinc-500 font-normal">vs</span>
+        <div className="font-sans font-semibold text-lg text-on-surface text-right flex items-center gap-1.5 ml-auto">
+          <span>{pick.awayTeam}</span>
+          {getTeamFlag(pick.awayTeam) && (
+            <span className="text-[1.25em] leading-none">{getTeamFlag(pick.awayTeam)}</span>
+          )}
+        </div>
       </div>
 
       {isLocked ? (
