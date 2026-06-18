@@ -6,10 +6,12 @@ import { ArrowLeft, RefreshCw, Trophy, Zap } from 'lucide-react';
 
 import {
   getWorldCupDashboard,
+  getWCGroupStandings,
   type Signal,
   type WCDashboard,
   type WCTeamRow,
   type WCTopPick,
+  type WCStandingRow,
 } from '@/lib/api/worldcup';
 
 // Colores de señal desde variables CSS (valores dinámicos → inline style permitido).
@@ -150,6 +152,118 @@ function FormCell({ t }: { t: WCTeamRow }) {
       {t.form_last5.map((r, i) => (
         <FormSquare key={i} r={r} />
       ))}
+    </div>
+  );
+}
+
+
+// ----------------------------------------------------------------------------
+// Clasificación de grupo
+// ----------------------------------------------------------------------------
+
+interface GroupStandingsMiniTableProps {
+  groupLetter: string;
+}
+
+function GroupStandingsMiniTable({ groupLetter }: GroupStandingsMiniTableProps) {
+  const [standings, setStandings] = useState<WCStandingRow[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    getWCGroupStandings(groupLetter)
+      .then((data) => {
+        if (!cancelled) {
+          setStandings(data);
+        }
+      })
+      .catch((err) => console.error('Error fetching standings for group ' + groupLetter, err))
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [groupLetter]);
+
+  if (loading) {
+    return (
+      <div className="animate-pulse space-y-2 mb-4">
+        <div className="h-24 bg-white/[0.04] rounded-lg w-full" />
+      </div>
+    );
+  }
+
+  if (!standings || standings.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-xl border border-white/[0.06] bg-[#111114] mb-4">
+      <div className="px-4 py-2.5 border-b border-white/[0.06] flex items-center justify-between">
+        <span className="font-sans text-xs font-bold uppercase tracking-wider text-zinc-400">
+          Clasificación Actual · Grupo {groupLetter}
+        </span>
+      </div>
+      <table className="w-full text-xs sm:text-sm border-collapse">
+        <thead>
+          <tr className="border-b border-white/[0.06] text-left text-zinc-500 font-bold uppercase tracking-wider text-[10px]">
+            <th className="px-4 py-2 w-12 text-center">Pos</th>
+            <th className="px-4 py-2">Equipo</th>
+            <th className="px-4 py-2 text-center">PJ</th>
+            <th className="px-4 py-2 text-center">G</th>
+            <th className="px-4 py-2 text-center">E</th>
+            <th className="px-4 py-2 text-center">P</th>
+            <th className="px-4 py-2 text-center">GF:GC</th>
+            <th className="px-4 py-2 text-center">DG</th>
+            <th className="px-4 py-2 text-center font-bold text-white">Pts</th>
+          </tr>
+        </thead>
+        <tbody>
+          {standings.map((row, idx) => {
+            const isQualifying = idx < 2;
+            return (
+              <tr
+                key={row.team}
+                className="border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02]"
+              >
+                <td className="px-4 py-2.5 text-center font-mono font-bold">
+                  {isQualifying ? (
+                    <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs">
+                      {idx + 1}
+                    </span>
+                  ) : (
+                    <span className="text-zinc-500">{idx + 1}</span>
+                  )}
+                </td>
+                <td className="px-4 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg leading-none">{row.flag}</span>
+                    <span className="font-semibold text-zinc-100">{row.team}</span>
+                    {isQualifying && (
+                      <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        Clasificado
+                      </span>
+                    )}
+                  </div>
+                </td>
+                <td className="px-4 py-2.5 text-center font-mono text-zinc-300">{row.played}</td>
+                <td className="px-4 py-2.5 text-center font-mono text-zinc-300">{row.wins}</td>
+                <td className="px-4 py-2.5 text-center font-mono text-zinc-300">{row.draws}</td>
+                <td className="px-4 py-2.5 text-center font-mono text-zinc-300">{row.losses}</td>
+                <td className="px-4 py-2.5 text-center font-mono text-zinc-400">
+                  {row.goals_for}:{row.goals_against}
+                </td>
+                <td className={`px-4 py-2.5 text-center font-mono font-bold ${row.goal_difference > 0 ? 'text-emerald-400' : row.goal_difference < 0 ? 'text-rose-400' : 'text-zinc-500'}`}>
+                  {row.goal_difference > 0 ? `+${row.goal_difference}` : row.goal_difference}
+                </td>
+                <td className="px-4 py-2.5 text-center font-mono font-bold text-white">{row.points}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -413,7 +527,10 @@ export default function WorldCupPage() {
               })}
             </div>
 
-            {/* 5. Group stats table */}
+            {/* 5. Group standings mini-table */}
+            <GroupStandingsMiniTable groupLetter={activeGroup} />
+
+            {/* 6. Group stats table */}
             <GroupTable teams={activeTeams} />
 
             {/* 6. Top Picks */}

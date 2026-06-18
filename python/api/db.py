@@ -62,6 +62,8 @@ _INCREMENTAL_COLUMNS = [
     ("fixtures", "tournament_phase", "TEXT"),
     ("fixtures", "match_group", "TEXT"),
     ("fixtures", "round_number", "INTEGER"),
+    ("picks", "ev_capped", "BOOLEAN DEFAULT FALSE"),
+    ("picks", "ev_raw", "REAL"),
 ]
 
 # Alias retro-compatible.
@@ -136,6 +138,14 @@ def init_db() -> None:
                     seed_achievements_pg(cur)
                     _run_bankroll_migration(cur)
                     print("[db] PostgreSQL inicializado correctamente.")
+                    # Sync World Cup fixtures on startup
+                    try:
+                        from data.wc_fixture_sync import sync_wc_fixtures_from_odds_api
+                        print("[db] Ejecutando sincronizacion inicial de fixtures de Copa del Mundo...")
+                        sync_res = sync_wc_fixtures_from_odds_api()
+                        print(f"[db] Sincronizacion inicial de Copa del Mundo completada: {sync_res}")
+                    except Exception as sync_exc:
+                        print(f"[db] Sincronizacion inicial falló: {sync_exc}")
                     return
             except Exception as e:
                 print(f"[db] PostgreSQL falló, usando SQLite como fallback: {e}")
@@ -151,6 +161,14 @@ def init_db() -> None:
             seed_achievements_sqlite(conn)
             _run_bankroll_migration(conn)
             print(f"[db] SQLite inicializado correctamente en {SQLITE_DB_PATH}")
+            # Sync World Cup fixtures on startup
+            try:
+                from data.wc_fixture_sync import sync_wc_fixtures_from_odds_api
+                print("[db] (sqlite) Ejecutando sincronizacion inicial de fixtures de Copa del Mundo...")
+                sync_res = sync_wc_fixtures_from_odds_api()
+                print(f"[db] (sqlite) Sincronizacion inicial de Copa del Mundo completada: {sync_res}")
+            except Exception as sync_exc:
+                print(f"[db] (sqlite) Sincronizacion inicial falló: {sync_exc}")
 
     except Exception as exc:
         print(f"[db] Error crítico inicializando base de datos: {exc}")

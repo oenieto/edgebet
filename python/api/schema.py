@@ -342,6 +342,8 @@ CREATE TABLE IF NOT EXISTS picks (
     odds REAL,
     edge_pp REAL,
     ev_pct REAL,
+    ev_capped BOOLEAN DEFAULT FALSE,
+    ev_raw REAL,
     sources_agree BOOLEAN,
     market_verified BOOLEAN,
     markets_json TEXT,
@@ -444,6 +446,24 @@ CREATE TABLE IF NOT EXISTS player_stats (
 
 CREATE INDEX IF NOT EXISTS idx_player_stats_team ON player_stats(team);
 CREATE INDEX IF NOT EXISTS idx_player_stats_player ON player_stats(player_name);
+
+-- ============================================================
+-- WORLD CUP GROUP STANDINGS
+-- ============================================================
+CREATE TABLE IF NOT EXISTS wc_group_standings (
+  id            SERIAL PRIMARY KEY,
+  group_letter  CHAR(1) NOT NULL,
+  team_name     TEXT NOT NULL,
+  matches_played INTEGER DEFAULT 0,
+  wins          INTEGER DEFAULT 0,
+  draws         INTEGER DEFAULT 0,
+  losses        INTEGER DEFAULT 0,
+  goals_for     INTEGER DEFAULT 0,
+  goals_against INTEGER DEFAULT 0,
+  points        INTEGER DEFAULT 0,
+  last_updated  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(group_letter, team_name)
+);
 """
 
 

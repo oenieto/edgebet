@@ -89,3 +89,13 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+/* FIFA World Cup 2026 Theme */
+.wc-theme {
+  --wc-primary: #1A1A2E;
+  --wc-accent: #C8A951;
+  --wc-red: #E63946;
+  --wc-light: #F5F5F0;
+  --wc-gold-gradient: linear-gradient(135deg, #C8A951 0%, #F0D080 50%, #C8A951 100%);
+  --wc-bg-gradient: linear-gradient(180deg, #1A1A2E 0%, #0D0D1A 100%);
+}

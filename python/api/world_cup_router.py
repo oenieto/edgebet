@@ -448,3 +448,260 @@ def team_stats_endpoint(team_name: str) -> dict:
 @router.get("/h2h")
 def h2h_endpoint(home: str, away: str) -> dict:
     return get_h2h(home, away, n=5)
+
+
+def get_poisson_predictions(home_team: str, away_team: str) -> dict:
+    """
+    Computes expected goals lambdas, Dixon-Coles outcome probabilities,
+    and argmax of score matrix for WC fixtures.
+    """
+    from api.poisson_predictor import get_national_predictor
+    from api.poisson_markets import _poisson_pmf, _dc_tau
+    pred = get_national_predictor()
+    
+    # Ensure predictor model is fitted
+    if not pred.fitted:
+        try:
+            from features.elo import load_national_team_history
+            df = load_national_team_history()
+            pred.fit_national_teams(df)
+        except Exception:
+            pass
+
+    has_data = pred.has_team_data(home_team) and pred.has_team_data(away_team)
+    if has_data:
+        lam_home = pred.league_avg * pred.national_attack[home_team] * pred.national_defense[away_team] * pred.home_factor
+        lam_away = pred.league_avg * pred.national_attack[away_team] * pred.national_defense[home_team]
+    else:
+        # Fallback approximation based on ELO
+        elo_h = _elo_of(home_team)
+        elo_a = _elo_of(away_team)
+        diff = elo_h - elo_a
+        lam_home = max(1.35 + diff / 400.0, 0.2)
+        lam_away = max(1.35 - diff / 400.0, 0.2)
+
+    # Compute score matrix and find argmax (most likely score)
+    max_p = -1.0
+    best_score = "1-1"
+    for i in range(6):
+        for j in range(6):
+            p = _dc_tau(i, j, lam_home, lam_away, -0.1) * _poisson_pmf(i, lam_home) * _poisson_pmf(j, lam_away)
+            if p > max_p:
+                max_p = p
+                best_score = f"{i}-{j}"
+
+    if has_data:
+        res = pred.predict(home_team, away_team)
+        ph, pd, pa = res["home"], res["draw"], res["away"]
+    else:
+        ph, pd, pa = _neutral_1x2(_elo_of(home_team), _elo_of(away_team))
+
+    return {
+        "predicted_home_goals": round(lam_home, 2),
+        "predicted_away_goals": round(lam_away, 2),
+        "predicted_most_likely_score": best_score,
+        "prob_home": round(ph, 4),
+        "prob_draw": round(pd, 4),
+        "prob_away": round(pa, 4)
+    }
+
+
+@router.get("/fixtures")
+def get_wc_fixtures(group: str | None = None, status: str | None = None, date: str | None = None) -> dict:
+    _ensure_model()
+    
+    from api.world_cup import all_teams
+    team_flags = {t.key: t.flag for t in all_teams()}
+    
+    query = """
+        SELECT id, external_id, home_team, away_team, kickoff, status, 
+               tournament_phase, match_group, round_number, home_score, away_score
+        FROM fixtures
+        WHERE league_slug = 'fifa-world-cup'
+    """
+    params = []
+    
+    if group:
+        query += " AND match_group = %s"
+        params.append(group.upper())
+    if status:
+        if status in ("scheduled", "finished"):
+            query += " AND status = %s"
+            params.append(status)
+            
+    try:
+        with connect() as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+    except Exception as exc:
+        logger.error("[worldcup] DB error fetching fixtures: %s", exc)
+        return {"fixtures": [], "total": 0}
+        
+    fixtures_list = []
+    now = datetime.now(timezone.utc)
+    
+    for r in rows:
+        fid = r["id"] if hasattr(r, "keys") else r[0]
+        ext_id = r["external_id"] if hasattr(r, "keys") else r[1]
+        home = r["home_team"] if hasattr(r, "keys") else r[2]
+        away = r["away_team"] if hasattr(r, "keys") else r[3]
+        ko = r["kickoff"] if hasattr(r, "keys") else r[4]
+        stat = r["status"] if hasattr(r, "keys") else r[5]
+        phase = r["tournament_phase"] if hasattr(r, "keys") else r[6]
+        m_group = r["match_group"] if hasattr(r, "keys") else r[7]
+        round_num = r["round_number"] if hasattr(r, "keys") else r[8]
+        hs = r["home_score"] if hasattr(r, "keys") else r[9]
+        as_ = r["away_score"] if hasattr(r, "keys") else r[10]
+        
+        # Parse kickoff datetime
+        if isinstance(ko, str):
+            if ko.endswith("Z"):
+                ko = ko[:-1] + "+00:00"
+            ko_dt = datetime.fromisoformat(ko).astimezone(timezone.utc)
+        elif isinstance(ko, datetime):
+            ko_dt = ko.astimezone(timezone.utc)
+        else:
+            ko_dt = now
+
+        # Date filtering
+        if date == "today":
+            if ko_dt.date() != now.date():
+                continue
+        elif date == "upcoming":
+            if ko_dt < now:
+                continue
+        elif date == "past":
+            if ko_dt >= now:
+                continue
+                
+        # Get Poisson predictions and ELO probabilities
+        pred_data = get_poisson_predictions(home, away)
+        
+        # Get latest odds from snapshots
+        best_odds = {"home": None, "draw": None, "away": None}
+        try:
+            with connect() as cur_odds:
+                cur_odds.execute(
+                    """
+                    SELECT home_odds, draw_odds, away_odds
+                    FROM odds_snapshots
+                    WHERE fixture_id = %s
+                    ORDER BY captured_at DESC
+                    LIMIT 1
+                    """,
+                    (fid,)
+                )
+                row_odds = cur_odds.fetchone()
+                if row_odds:
+                    best_odds["home"] = row_odds["home_odds"] if hasattr(row_odds, "keys") else row_odds[0]
+                    best_odds["draw"] = row_odds["draw_odds"] if hasattr(row_odds, "keys") else row_odds[1]
+                    best_odds["away"] = row_odds["away_odds"] if hasattr(row_odds, "keys") else row_odds[2]
+        except Exception:
+            pass
+
+        fixtures_list.append({
+            "id": fid,
+            "external_id": ext_id,
+            "home_team": home,
+            "home_flag": team_flags.get(home, "⚽"),
+            "away_team": away,
+            "away_flag": team_flags.get(away, "⚽"),
+            "match_date": ko_dt.isoformat(),
+            "status": stat,
+            "tournament_phase": phase,
+            "match_group": m_group,
+            "round_number": round_num,
+            "home_goals": hs,
+            "away_goals": as_,
+            "predicted_home_goals": pred_data["predicted_home_goals"],
+            "predicted_away_goals": pred_data["predicted_away_goals"],
+            "predicted_most_likely_score": pred_data["predicted_most_likely_score"],
+            "prob_home": pred_data["prob_home"],
+            "prob_draw": pred_data["prob_draw"],
+            "prob_away": pred_data["prob_away"],
+            "best_odds_home": best_odds["home"],
+            "best_odds_draw": best_odds["draw"],
+            "best_odds_away": best_odds["away"],
+            "home_form": get_team_form(home)["form_last5"],
+            "away_form": get_team_form(away)["form_last5"]
+        })
+        
+    fixtures_list.sort(key=lambda x: x["match_date"])
+    return {
+        "fixtures": fixtures_list,
+        "total": len(fixtures_list)
+    }
+
+
+@router.get("/predictions")
+def get_wc_predictions() -> list[dict]:
+    from api.picks_service import get_todays_picks
+    picks = get_todays_picks(league_slug="fifa-world-cup")
+    
+    enriched_picks = []
+    for p in picks:
+        # copy dict to avoid changing cache
+        p_copy = dict(p)
+        home = p_copy["homeTeam"]
+        away = p_copy["awayTeam"]
+        p_copy["home_form"] = get_team_form(home)["form_last5"]
+        p_copy["away_form"] = get_team_form(away)["form_last5"]
+        p_copy["h2h"] = get_h2h(home, away, n=3)["matches"]
+        enriched_picks.append(p_copy)
+        
+    return enriched_picks
+
+
+@router.get("/standings")
+def get_wc_standings() -> dict:
+    from data.wc_standings_updater import get_standings_for_group
+    groups_standings = {}
+    for letter in ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"]:
+        groups_standings[letter] = get_standings_for_group(letter)
+        
+    return {
+        "groups": groups_standings,
+        "last_updated": datetime.now(timezone.utc).isoformat()
+    }
+
+
+@router.get("/standings/{group_letter}")
+def get_wc_group_standings(group_letter: str) -> list[dict]:
+    from data.wc_standings_updater import get_standings_for_group
+    return get_standings_for_group(group_letter.upper())
+
+
+@router.get("/live")
+def get_wc_live() -> dict:
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+    three_hours_ago = now - timedelta(hours=3)
+    
+    try:
+        with connect() as cur:
+            cur.execute(
+                """
+                SELECT id, external_id, home_team, away_team, kickoff, status, match_group, round_number
+                FROM fixtures
+                WHERE league_slug = 'fifa-world-cup'
+                  AND status != 'finished'
+                  AND kickoff >= %s
+                  AND kickoff <= %s
+                """,
+                (three_hours_ago.isoformat(), now.isoformat())
+            )
+            rows = cur.fetchall()
+    except Exception as exc:
+        logger.error("[worldcup] DB error fetching live: %s", exc)
+        rows = []
+        
+    fixtures_list = []
+    for r in rows:
+        fixtures_list.append({
+            "id": r["id"] if hasattr(r, "keys") else r[0],
+            "external_id": r["external_id"] if hasattr(r, "keys") else r[1],
+            "home_team": r["home_team"] if hasattr(r, "keys") else r[2],
+            "away_team": r["away_team"] if hasattr(r, "keys") else r[3],
+        })
+        
+    return {"fixtures": fixtures_list}

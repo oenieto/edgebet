@@ -395,48 +395,91 @@ def _build_pick_for_match(
 
     # ML probs (ensemble o ELO fallback, o Poisson xG)
     import os
-    pred_method = (os.environ.get("PREDICTION_METHOD") or "ensemble").lower()
-    if pred_method == "poisson":
-        from api.poisson_predictor import predict_poisson_probs
-        ml_probs = predict_poisson_probs(home_form, away_form)
-        ml_source = "poisson"
+    if slug == "fifa-world-cup":
+        # Ensure national team model is fitted
+        from api.poisson_predictor import get_national_predictor
+        from features.elo import load_national_team_history
+        predictor_instance = get_national_predictor()
+        if not predictor_instance.fitted:
+            df = load_national_team_history()
+            predictor_instance.fit_national_teams(df)
+
+        res = predictor_instance.predict(home_team, away_team)
+        if res.get("data_source") == "poisson_historical":
+            ml_probs = {
+                "home": res["home"],
+                "draw": res["draw"],
+                "away": res["away"]
+            }
+            ml_source = "poisson_wc"
+        else:
+            # Fallback to ELO neutral
+            from api.world_cup_router import _elo_of, _neutral_1x2
+            elo_h = _elo_of(home_team)
+            elo_a = _elo_of(away_team)
+            wh, wd, wa = _neutral_1x2(elo_h, elo_a)
+            ml_probs = {"home": wh, "draw": wd, "away": wa}
+            ml_source = "elo_fallback"
+
+        poly_probs_dict = None
+        poly_meta = None
+
+        if bookmaker_source != "synthetic" and bk_probs:
+            # Blend: 0.65 * Poisson + 0.35 * Bookmaker
+            blended = {
+                "home": 0.65 * ml_probs["home"] + 0.35 * bk_probs["home"],
+                "draw": 0.65 * ml_probs["draw"] + 0.35 * bk_probs["draw"],
+                "away": 0.65 * ml_probs["away"] + 0.35 * bk_probs["away"]
+            }
+            # Normalize
+            tot = sum(blended.values())
+            blended = {k: v / tot for k, v in blended.items()}
+        else:
+            # Use 1.0 * Poisson
+            blended = dict(ml_probs)
     else:
-        ml_probs, ml_source = predictor.predict_ml_probs(
-            home_team=home_team,
-            away_team=away_team,
-            matches=matches,
-            elo_ratings=ratings,
-            home_form=home_form,
-            away_form=away_form,
+        pred_method = (os.environ.get("PREDICTION_METHOD") or "ensemble").lower()
+        if pred_method == "poisson":
+            from api.poisson_predictor import predict_poisson_probs
+            ml_probs = predict_poisson_probs(home_form, away_form)
+            ml_source = "poisson"
+        else:
+            ml_probs, ml_source = predictor.predict_ml_probs(
+                home_team=home_team,
+                away_team=away_team,
+                matches=matches,
+                elo_ratings=ratings,
+                home_form=home_form,
+                away_form=away_form,
+                bookmaker_probs=bk_probs,
+            )
+
+        # Polymarket live (puede devolver None si no hay mercado)
+        poly_probs_dict = None
+        poly_meta = None
+        try:
+            poly_pick = find_match_probs(home_team, away_team)
+            if poly_pick:
+                poly_probs_dict = {
+                    "home": poly_pick.home,
+                    "draw": poly_pick.draw,
+                    "away": poly_pick.away,
+                }
+                poly_meta = {
+                    "liquidity": poly_pick.liquidity,
+                    "volume_24h": poly_pick.volume_24h,
+                    "market_slug": poly_pick.market_slug,
+                    "match_confidence": poly_pick.confidence,
+                }
+        except Exception as exc:
+            print(f"[picks_service] polymarket fallo: {exc}")
+
+        # Triple blend
+        blended = predictor.triple_layer_blend(
+            ml_probs=ml_probs,
             bookmaker_probs=bk_probs,
+            polymarket_probs=poly_probs_dict,
         )
-
-    # Polymarket live (puede devolver None si no hay mercado)
-    poly_probs_dict: dict | None = None
-    poly_meta: dict | None = None
-    try:
-        poly_pick = find_match_probs(home_team, away_team)
-        if poly_pick:
-            poly_probs_dict = {
-                "home": poly_pick.home,
-                "draw": poly_pick.draw,
-                "away": poly_pick.away,
-            }
-            poly_meta = {
-                "liquidity": poly_pick.liquidity,
-                "volume_24h": poly_pick.volume_24h,
-                "market_slug": poly_pick.market_slug,
-                "match_confidence": poly_pick.confidence,
-            }
-    except Exception as exc:
-        print(f"[picks_service] polymarket fallo: {exc}")
-
-    # Triple blend
-    blended = predictor.triple_layer_blend(
-        ml_probs=ml_probs,
-        bookmaker_probs=bk_probs,
-        polymarket_probs=poly_probs_dict,
-    )
 
     # Pick determinista sobre el blend (más robusto que usar solo ML)
     pick = generate_pick(
@@ -514,6 +557,15 @@ def _build_pick_for_match(
         except Exception as exc:
             print(f"[picks_service] aplicar odds reales falló para {home_team}-{away_team}: {exc}")
 
+    # Phase 5.2: EV Cap logic for WC matches
+    ev_capped_val = False
+    ev_raw_val = None
+    if slug == "fifa-world-cup" and ev_pct is not None:
+        if abs(ev_pct) > 60.0:
+            ev_capped_val = True
+            ev_raw_val = ev_pct
+            ev_pct = 60.0 if ev_pct > 0 else -60.0
+
     result = {
         "id": str(uuid4()),
         "match": f"{home_team} vs {away_team}",
@@ -556,6 +608,8 @@ def _build_pick_for_match(
         "odds": odds_display,
         "edgePp": edge_pp,
         "evPct": ev_pct,
+        "ev_capped": ev_capped_val,
+        "ev_raw": ev_raw_val,
         "sourcesAgree": sources_agree,
         "modelSource": ml_source,  # "ensemble" | "elo_fallback"
         "bookmakerSource": bookmaker_source,  # "bet365" | "synthetic"
@@ -685,7 +739,7 @@ def save_picks_to_db(picks_list: list[dict]) -> None:
                             bk_prob_home = %s, bk_prob_draw = %s, bk_prob_away = %s,
                             blended_prob_home = %s, blended_prob_draw = %s, blended_prob_away = %s,
                             ai_reasoning = %s, suggested_stake = %s, status = %s, odds = %s,
-                            edge_pp = %s, ev_pct = %s, sources_agree = %s, market_verified = %s,
+                            edge_pp = %s, ev_pct = %s, ev_capped = %s, ev_raw = %s, sources_agree = %s, market_verified = %s,
                             markets_json = %s, poly_meta_json = %s
                         WHERE id = %s
                         """,
@@ -698,7 +752,7 @@ def save_picks_to_db(picks_list: list[dict]) -> None:
                             bk["home"], bk["draw"], bk["away"],
                             blended.get("home"), blended.get("draw"), blended.get("away"),
                             p["aiReasoning"], p["suggestedStake"], p["status"], p.get("odds"),
-                            p.get("edgePp"), p.get("evPct"), p.get("sourcesAgree"), p.get("marketVerified"),
+                            p.get("edgePp"), p.get("evPct"), p.get("ev_capped"), p.get("ev_raw"), p.get("sourcesAgree"), p.get("marketVerified"),
                             markets_json, poly_meta_json,
                             p["id"]
                         )
@@ -713,7 +767,7 @@ def save_picks_to_db(picks_list: list[dict]) -> None:
                             poly_prob_home, poly_prob_draw, poly_prob_away,
                             bk_prob_home, bk_prob_draw, bk_prob_away,
                             blended_prob_home, blended_prob_draw, blended_prob_away,
-                            ai_reasoning, suggested_stake, status, odds, edge_pp, ev_pct,
+                            ai_reasoning, suggested_stake, status, odds, edge_pp, ev_pct, ev_capped, ev_raw,
                             sources_agree, market_verified, markets_json, poly_meta_json
                         ) VALUES (
                             %s, %s, %s, %s, %s, %s,
@@ -722,7 +776,7 @@ def save_picks_to_db(picks_list: list[dict]) -> None:
                             %s, %s, %s,
                             %s, %s, %s,
                             %s, %s, %s,
-                            %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s, %s, %s,
                             %s, %s, %s, %s
                         )
                         """,
@@ -735,7 +789,7 @@ def save_picks_to_db(picks_list: list[dict]) -> None:
                             bk["home"], bk["draw"], bk["away"],
                             blended.get("home"), blended.get("draw"), blended.get("away"),
                             p["aiReasoning"], p["suggestedStake"], p["status"], p.get("odds"),
-                            p.get("edgePp"), p.get("evPct"), p.get("sourcesAgree"), p.get("marketVerified"),
+                            p.get("edgePp"), p.get("evPct"), p.get("ev_capped"), p.get("ev_raw"), p.get("sourcesAgree"), p.get("marketVerified"),
                             markets_json, poly_meta_json
                         )
                     )
@@ -821,6 +875,8 @@ def load_picks_from_db(league_slug: str | None = None) -> list[dict]:
                     "odds": row_dict.get("odds"),
                     "edgePp": row_dict.get("edge_pp"),
                     "evPct": row_dict.get("ev_pct"),
+                    "ev_capped": bool(row_dict.get("ev_capped")) if row_dict.get("ev_capped") is not None else False,
+                    "ev_raw": row_dict.get("ev_raw"),
                     "sourcesAgree": bool(row_dict["sources_agree"]) if row_dict.get("sources_agree") is not None else None,
                     "marketVerified": bool(row_dict["market_verified"]) if row_dict.get("market_verified") is not None else None,
                     "markets": json.loads(row_dict["markets_json"]) if row_dict.get("markets_json") else None,

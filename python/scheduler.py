@@ -102,6 +102,29 @@ def _wc_window_daily_pipeline() -> None:
         run_national_pipeline()
 
 
+def sync_wc_fixtures_job() -> None:
+    """Sincroniza los fixtures del Mundial desde Odds API."""
+    try:
+        logger.info("[scheduler] Iniciando sync_wc_fixtures_job...")
+        from data.wc_fixture_sync import sync_wc_fixtures_from_odds_api
+        res = sync_wc_fixtures_from_odds_api()
+        logger.info("[scheduler] sync_wc_fixtures_job finalizado: %s", res)
+    except Exception as exc:
+        logger.error("[scheduler] Error en sync_wc_fixtures_job: %s", exc)
+
+
+def check_wc_live_scores_job() -> None:
+    """Verifica resultados de partidos en vivo si el Mundial está activo."""
+    today = _dt.now(_tz.utc).date()
+    if _WC_WINDOW[0] <= today <= _WC_WINDOW[1]:
+        try:
+            logger.info("[scheduler] Verificando partidos en vivo del Mundial...")
+            from data.wc_fixture_sync import check_live_wc_scores
+            check_live_wc_scores()
+        except Exception as exc:
+            logger.error("[scheduler] Error en check_wc_live_scores_job: %s", exc)
+
+
 def start_scheduler():
     """
     Inicia el scheduler: snapshots de cuotas cada 4 horas y generación diaria
@@ -112,6 +135,12 @@ def start_scheduler():
 
     # Snapshot de cuotas cada 4 horas.
     scheduler.add_job(run_snapshot, 'interval', hours=4, id='odds_snapshot_job')
+
+    # Sincronización de fixtures de la Copa del Mundo cada 4 horas
+    scheduler.add_job(sync_wc_fixtures_job, 'interval', hours=4, id='sync_wc_fixtures_job')
+
+    # Verificación de partidos en vivo del Mundial cada 15 minutos
+    scheduler.add_job(check_wc_live_scores_job, 'interval', minutes=15, id='check_wc_live_scores_job')
 
     # Generación + persistencia de picks una vez al día, 06:00 UTC.
     scheduler.add_job(
@@ -136,6 +165,12 @@ def start_scheduler():
         run_snapshot()
     except Exception as e:
         logger.error(f"Fallo durante el snapshot inicial: {e}")
+
+    logger.info("Ejecutando sincronización de Copa del Mundo inicial...")
+    try:
+        sync_wc_fixtures_job()
+    except Exception as e:
+        logger.error(f"Fallo durante la sincronización inicial de Copa del Mundo: {e}")
 
     logger.info("Ejecutando generación inicial de picks...")
     try:

@@ -3,8 +3,9 @@
 import React from 'react';
 import useSWR from 'swr';
 import { useParams, useRouter } from 'next/navigation';
-import { ArrowLeft, Clock, MapPin, Target, Flame, Trophy, Activity, Lock, BarChart3, TrendingUp } from 'lucide-react';
+import { ArrowLeft, Clock, MapPin, Target, Flame, Trophy, Activity, Lock, BarChart3, TrendingUp, AlertTriangle } from 'lucide-react';
 import { getPick, getPickStats } from '@/lib/api/picks';
+import { getWCTeamStats, getWCH2h } from '@/lib/api/worldcup';
 import { useAuth } from '@/contexts/AuthContext';
 import { useUserStore } from '@/lib/store/userStore';
 import TeamLogo from '@/components/picks/TeamLogo';
@@ -86,6 +87,14 @@ export default function PickDetailPage() {
   const { data: pick, error, isLoading } = useSWR(id ? `pick-${id}` : null, () => getPick(id as string));
   const { data: stats } = useSWR(id ? `pick-stats-${id}` : null, () => getPickStats(id as string));
 
+  const isWorldCup = !!(pick?.league?.toLowerCase().includes('world cup') || pick?.leagueSlug === 'fifa-world-cup');
+
+  // Fetch WC team stats and H2H statistics if it's World Cup
+  useSWR(isWorldCup && pick ? `wc-stats-home-${pick.homeTeam}` : null, () => getWCTeamStats(pick.homeTeam));
+  useSWR(isWorldCup && pick ? `wc-stats-away-${pick.awayTeam}` : null, () => getWCTeamStats(pick.awayTeam));
+  useSWR(isWorldCup && pick ? `wc-h2h-${pick.homeTeam}-${pick.awayTeam}` : null, () => getWCH2h(pick.homeTeam, pick.awayTeam));
+
+
   if (isLoading) {
     return (
       <div className="max-w-[1000px] mx-auto px-4 py-10 flex justify-center">
@@ -162,6 +171,15 @@ export default function PickDetailPage() {
               </div>
             </div>
           </div>
+
+          {pick.ev_capped && (
+            <div className="mb-6 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3">
+              <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+              <div className="font-sans text-[12.5px] text-amber-200 leading-relaxed">
+                <span className="font-bold">Valor esperado (EV) limitado:</span> El EV estimado de este partido superaba el umbral razonable y ha sido limitado visualmente al 60.0% para mayor seguridad (EV Real: {pick.ev_raw?.toFixed(1) ?? '—'}%).
+              </div>
+            </div>
+          )}
 
           {!pick.marketVerified && (
             <div className="mb-6 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3">
@@ -277,6 +295,11 @@ export default function PickDetailPage() {
                     <div className="font-mono text-[24px] font-bold text-white mb-1">@{pick.odds?.toFixed(2) ?? '—'}</div>
                     <div className="font-sans text-[11px] text-emerald-400 flex items-center gap-1">
                       {pick.evPct && pick.evPct > 0 ? `+${pick.evPct.toFixed(1)}% EV` : ''}
+                      {pick.ev_capped && (
+                        <span className="ml-1 text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20" title={`Limitado (EV Real: ${pick.ev_raw?.toFixed(1) ?? '—'}%)`}>
+                          LIMITADO
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>

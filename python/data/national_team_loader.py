@@ -228,6 +228,10 @@ def load_and_merge(write: bool = True) -> list[dict]:
     return load_all_sources(write=write)
 
 
+import time as _time
+_HISTORY_CACHE: dict = {"rows": None, "ts": 0.0}
+_HISTORY_TTL = 3600  # 1 hour
+
 def _write_csv(rows: list[dict]) -> None:
     try:
         with open(HISTORY_CSV, "w", newline="", encoding="utf-8") as f:
@@ -235,6 +239,9 @@ def _write_csv(rows: list[dict]) -> None:
             writer.writeheader()
             for r in rows:
                 writer.writerow({k: r.get(k, "") for k in CSV_COLUMNS})
+        # Update cache
+        _HISTORY_CACHE["rows"] = rows
+        _HISTORY_CACHE["ts"] = _time.time()
     except OSError as exc:
         logger.error("[natloader] no pude escribir %s: %s", HISTORY_CSV, exc)
 
@@ -307,7 +314,11 @@ def refresh_if_stale(max_age_hours: int = 24) -> list[dict]:
 
 
 def read_history() -> list[dict]:
-    """Lee el CSV persistido. Devuelve [] si no existe."""
+    """Lee el CSV persistido con cache en memoria (1h TTL). Devuelve [] si no existe."""
+    now = _time.time()
+    if _HISTORY_CACHE["rows"] is not None and (now - _HISTORY_CACHE["ts"]) < _HISTORY_TTL:
+        return _HISTORY_CACHE["rows"]
+
     if not HISTORY_CSV.exists():
         return []
     out: list[dict] = []
@@ -322,6 +333,8 @@ def read_history() -> list[dict]:
                     "away_team": r.get("away_team"), "home_goals": hg, "away_goals": ag,
                     "competition": r.get("competition", ""), "source": r.get("source", ""),
                 })
+        _HISTORY_CACHE["rows"] = out
+        _HISTORY_CACHE["ts"] = now
     except OSError as exc:
         logger.warning("[natloader] no pude leer %s: %s", HISTORY_CSV, exc)
     return out

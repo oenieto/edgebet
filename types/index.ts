@@ -32,6 +32,8 @@ export interface Pick {
   odds?: number | null;
   edgePp?: number | null;
   evPct?: number | null;
+  ev_capped?: boolean;
+  ev_raw?: number | null;
   sourcesAgree?: boolean;
   modelSource?: string;
   bookmakerSource?: string;
